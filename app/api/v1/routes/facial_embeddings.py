@@ -7,6 +7,7 @@ from app.api.dependencies import ApiKeyGuard, db_session
 from app.schemas.facial_embedding import (
     FacialEmbeddingCreate,
     FacialEmbeddingFromImageCreate,
+    FacialEmbeddingPartialUpdate,
     FacialEmbeddingResponse,
     FacialEmbeddingSummary,
 )
@@ -73,6 +74,25 @@ async def get_active_facial_embedding(
             detail="El aprendiz no tiene embedding facial activo.",
         )
     return record
+
+
+@router.patch(
+    "/users/{user_id}",
+    response_model=FacialEmbeddingResponse,
+    summary="Actualizar parcialmente embedding facial activo por aprendiz",
+)
+async def update_facial_embedding_partial(
+    user_id: UUID,
+    payload: FacialEmbeddingPartialUpdate,
+    session: AsyncSession = Depends(db_session),
+) -> FacialEmbeddingResponse:
+    service = FacialEmbeddingService(session)
+    try:
+        return await service.update_partial(user_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
 @router.get(

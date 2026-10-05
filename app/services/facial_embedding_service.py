@@ -6,6 +6,7 @@ from app.repositories.facial_embedding_repository import FacialEmbeddingReposito
 from app.schemas.facial_embedding import (
     FacialEmbeddingCreate,
     FacialEmbeddingFromImageCreate,
+    FacialEmbeddingPartialUpdate,
     FacialEmbeddingResponse,
     FacialEmbeddingSummary,
 )
@@ -66,6 +67,51 @@ class FacialEmbeddingService:
     async def get_active_by_user(self, user_id: UUID) -> FacialEmbeddingResponse | None:
         row = await self.repository.get_active_by_user(user_id)
         return FacialEmbeddingResponse.model_validate(row) if row else None
+
+    async def update_partial(
+        self,
+        user_id: UUID,
+        payload: FacialEmbeddingPartialUpdate,
+    ) -> FacialEmbeddingResponse:
+        editable_fields = {"embedding", "image_base64", "model_name", "photo_reference"}
+        if not payload.model_fields_set.intersection(editable_fields):
+            raise ValueError("Debe enviar al menos un campo para actualizar.")
+        if "embedding" in payload.model_fields_set and payload.embedding is None:
+            raise ValueError("El embedding no puede ser nulo.")
+        if "image_base64" in payload.model_fields_set and payload.image_base64 is None:
+            raise ValueError("La imagen no puede ser nula.")
+        if payload.embedding is not None and payload.image_base64 is not None:
+            raise ValueError("Envia embedding o image_base64, no ambos.")
+        if "model_name" in payload.model_fields_set and payload.model_name is None:
+            raise ValueError("model_name no puede ser nulo.")
+
+        if not await self.repository.user_exists(user_id):
+            raise LookupError("No existe un aprendiz/usuario con ese user_id.")
+
+        embedding = payload.embedding if "embedding" in payload.model_fields_set else None
+        model_name = payload.model_name if "model_name" in payload.model_fields_set else None
+        if payload.image_base64 is not None:
+            generated = self.embedding_worker.generate(payload.image_base64)
+            embedding = generated.embedding
+            model_name = model_name or generated.model_name
+
+        try:
+            row = await self.repository.update_active(
+                user_id=user_id,
+                embedding=embedding,
+                model_name=model_name,
+                photo_reference=payload.photo_reference,
+                update_photo_reference="photo_reference" in payload.model_fields_set,
+                updated_by=payload.updated_by,
+            )
+            if row is None:
+                raise LookupError("El aprendiz no tiene embedding facial activo.")
+            await self.session.commit()
+        except Exception:
+            await self.session.rollback()
+            raise
+
+        return FacialEmbeddingResponse.model_validate(row)
 
     async def list_active(self, limit: int, offset: int) -> list[FacialEmbeddingSummary]:
         rows = await self.repository.list_active(limit=limit, offset=offset)

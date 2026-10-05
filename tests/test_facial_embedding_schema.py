@@ -3,7 +3,8 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from app.schemas.facial_embedding import FacialEmbeddingCreate
+from app.main import create_app
+from app.schemas.facial_embedding import FacialEmbeddingCreate, FacialEmbeddingPartialUpdate
 
 
 def valid_payload(**overrides):
@@ -36,3 +37,47 @@ def test_accepts_valid_embedding_payload():
 def test_rejects_invalid_embeddings(embedding):
     with pytest.raises(ValidationError):
         FacialEmbeddingCreate(**valid_payload(embedding=embedding))
+
+
+def test_accepts_partial_update_payload():
+    payload = FacialEmbeddingPartialUpdate(photo_reference=None)
+
+    assert payload.photo_reference is None
+    assert "photo_reference" in payload.model_fields_set
+
+
+def test_accepts_partial_update_from_image_payload():
+    payload = FacialEmbeddingPartialUpdate(
+        image_base64="data:image/jpeg;base64,abc",
+        photoReference="capture://updated.jpg",
+        updatedBy="mobile-app",
+    )
+
+    assert payload.image_base64 == "data:image/jpeg;base64,abc"
+    assert payload.photo_reference == "capture://updated.jpg"
+    assert payload.updated_by == "mobile-app"
+
+
+def test_partial_update_rejects_invalid_embedding():
+    with pytest.raises(ValidationError):
+        FacialEmbeddingPartialUpdate(embedding=[0.0] * 128)
+
+
+def test_openapi_includes_partial_update_endpoint():
+    schema = create_app().openapi()
+
+    patch_operation = schema["paths"]["/api/v1/facial-embeddings/users/{user_id}"]["patch"]
+    response_properties = schema["components"]["schemas"]["FacialEmbeddingResponse"]["properties"]
+    summary_properties = schema["components"]["schemas"]["FacialEmbeddingSummary"]["properties"]
+
+    assert patch_operation["summary"] == "Actualizar parcialmente embedding facial activo por aprendiz"
+    assert (
+        patch_operation["requestBody"]["content"]["application/json"]["schema"]["$ref"]
+        == "#/components/schemas/FacialEmbeddingPartialUpdate"
+    )
+    partial_properties = schema["components"]["schemas"]["FacialEmbeddingPartialUpdate"]["properties"]
+    assert "image_base64" in partial_properties
+    assert "created_at" in response_properties
+    assert "registered_at" not in response_properties
+    assert "created_at" in summary_properties
+    assert "registered_at" not in summary_properties

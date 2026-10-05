@@ -38,6 +38,7 @@ OpenAPI queda disponible en:
 - `POST /api/v1/facial-embeddings` guarda un embedding facial activo por aprendiz.
 - `POST /api/v1/facial-embeddings/from-image` genera el embedding con InsightFace desde una imagen y lo guarda.
 - `GET /api/v1/facial-embeddings/users/{user_id}` consulta el embedding activo.
+- `PATCH /api/v1/facial-embeddings/users/{user_id}` actualiza parcialmente el embedding activo.
 - `DELETE /api/v1/facial-embeddings/users/{user_id}` desactiva el embedding activo.
 - `GET /health` verifica el estado del servicio.
 
@@ -58,3 +59,40 @@ Incluye `X-API-Key` en las peticiones cuando `API_KEY` tenga valor.
 ```
 
 El endpoint detecta exactamente un rostro con InsightFace, genera el vector facial y lo persiste en `facialrecognition.user_face`.
+
+## Actualizar parcialmente un embedding
+
+`PATCH /api/v1/facial-embeddings/users/{user_id}`
+
+```json
+{
+  "image_base64": "data:image/jpeg;base64,...",
+  "photo_reference": "capture://registro-aprendiz-actualizado.jpg",
+  "updated_by": "mobile-app"
+}
+```
+
+Tambien puede enviarse un vector ya calculado:
+
+```json
+{
+  "embedding": [
+    0.012, 0.034, 0.056, 0.078, 0.091, 0.023, 0.045, 0.067,
+    0.089, 0.011, 0.032, 0.054, 0.076, 0.098, 0.021, 0.043,
+    0.065, 0.087, 0.019, 0.031, 0.053, 0.075, 0.097, 0.029,
+    0.041, 0.063, 0.085, 0.017, 0.039, 0.051, 0.073, 0.095
+  ],
+  "model_name": "facenet-test",
+  "photo_reference": "capture://registro-aprendiz-actualizado.jpg",
+  "updated_by": "mobile-app"
+}
+```
+
+Todos los campos son opcionales salvo que debe enviarse al menos uno entre `image_base64`, `embedding`, `model_name` o `photo_reference`. Si se envia `image_base64`, el servicio genera el embedding con InsightFace. Si se envia `embedding`, el servicio recalcula `embedding_dimension`.
+
+
+# Comando de ejecución
+
+```
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8090
+```

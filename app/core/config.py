@@ -13,6 +13,14 @@ class Settings(BaseSettings):
         description="SQLAlchemy async database URL.",
     )
     cors_origins: list[str] = ["http://localhost:8081", "http://localhost:19006"]
+    cors_origin_regex: str = (
+        r"https?://("
+        r"localhost|127\.0\.0\.1|0\.0\.0\.0|"
+        r"10(?:\.\d{1,3}){3}|"
+        r"172\.(?:1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2}|"
+        r"192\.168(?:\.\d{1,3}){2}"
+        r"):\d+"
+    )
     min_embedding_dimension: int = 32
     max_embedding_dimension: int = 4096
     insightface_model_name: str = "buffalo_l"

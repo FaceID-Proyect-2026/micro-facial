@@ -37,7 +37,7 @@ class FacialEmbeddingRepository:
                     model_name,
                     photo_reference,
                     status,
-                    registered_at
+                    created_at
                 FROM facialrecognition.user_face
                 WHERE id_user_app = :user_id
                   AND status = 'ACTIVE'
@@ -102,7 +102,7 @@ class FacialEmbeddingRepository:
                     model_name,
                     photo_reference,
                     status,
-                    registered_at
+                    created_at
                 """
             ),
             {
@@ -116,6 +116,61 @@ class FacialEmbeddingRepository:
         )
         return dict(result.mappings().one())
 
+    async def update_active(
+        self,
+        *,
+        user_id: UUID,
+        embedding: list[float] | None,
+        model_name: str | None,
+        photo_reference: str | None,
+        update_photo_reference: bool,
+        updated_by: str,
+    ) -> dict[str, Any] | None:
+        assignments = ["updated_at = NOW()", "updated_by = :updated_by"]
+        params: dict[str, Any] = {"user_id": user_id, "updated_by": updated_by}
+
+        if embedding is not None:
+            assignments.extend(
+                [
+                    "embedding = :embedding",
+                    "embedding_dimension = :embedding_dimension",
+                ]
+            )
+            params["embedding"] = embedding
+            params["embedding_dimension"] = len(embedding)
+
+        if model_name is not None:
+            assignments.append("model_name = :model_name")
+            params["model_name"] = model_name
+
+        if update_photo_reference:
+            assignments.append("photo_reference = :photo_reference")
+            params["photo_reference"] = photo_reference
+
+        result = await self.session.execute(
+            text(
+                f"""
+                UPDATE facialrecognition.user_face
+                SET {", ".join(assignments)}
+                WHERE id_user_app = :user_id
+                  AND status = 'ACTIVE'
+                  AND deleted_at IS NULL
+                RETURNING
+                    id_user_face AS id,
+                    id_user_app AS user_id,
+                    embedding,
+                    embedding_dimension,
+                    model_name,
+                    photo_reference,
+                    status,
+                    created_at
+                """
+            ),
+            params,
+        )
+        row = result.mappings().one_or_none()
+        return dict(row) if row else None
+
     async def list_active(self, limit: int, offset: int) -> list[dict[str, Any]]:
         result = await self.session.execute(
             text(
@@ -126,11 +181,11 @@ class FacialEmbeddingRepository:
                     embedding_dimension,
                     model_name,
                     status,
-                    registered_at
+                    created_at
                 FROM facialrecognition.user_face
                 WHERE status = 'ACTIVE'
                   AND deleted_at IS NULL
-                ORDER BY registered_at DESC
+                ORDER BY created_at DESC
                 LIMIT :limit OFFSET :offset
                 """
             ),

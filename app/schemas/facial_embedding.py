@@ -2,7 +2,7 @@ import math
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 from app.core.config import settings
 
@@ -45,6 +45,39 @@ class FacialEmbeddingFromImageCreate(BaseModel):
     created_by: str = Field(default="embedding-service", max_length=100)
 
 
+class FacialEmbeddingPartialUpdate(BaseModel):
+    embedding: list[float] | None = Field(
+        default=None,
+        description="Nuevo vector facial. Si se envia, recalcula embedding_dimension.",
+    )
+    image_base64: str | None = Field(
+        default=None,
+        min_length=1,
+        validation_alias=AliasChoices("image_base64", "imageBase64"),
+        description="Imagen facial en base64 o data URI para regenerar el embedding.",
+    )
+    model_name: str | None = Field(default=None, min_length=1, max_length=100)
+    photo_reference: str | None = Field(
+        default=None,
+        max_length=500,
+        validation_alias=AliasChoices("photo_reference", "photoReference"),
+    )
+    updated_by: str = Field(
+        default="embedding-service",
+        max_length=100,
+        validation_alias=AliasChoices("updated_by", "updatedBy"),
+    )
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    @field_validator("embedding")
+    @classmethod
+    def validate_embedding(cls, value: list[float] | None) -> list[float] | None:
+        if value is None:
+            return value
+        return FacialEmbeddingCreate.validate_embedding(value)
+
+
 class FacialEmbeddingResponse(BaseModel):
     id: UUID
     user_id: UUID
@@ -53,7 +86,7 @@ class FacialEmbeddingResponse(BaseModel):
     model_name: str
     photo_reference: str | None
     status: str
-    registered_at: datetime
+    created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -64,6 +97,6 @@ class FacialEmbeddingSummary(BaseModel):
     embedding_dimension: int
     model_name: str
     status: str
-    registered_at: datetime
+    created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
