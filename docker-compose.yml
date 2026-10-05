@@ -1,0 +1,11 @@
+name: facelit-embedding-service
+
+services:
+  embedding-service:
+    build: .
+    env_file:
+      - .env
+    ports:
+      - "${SERVICE_PORT:-8090}:8090"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
