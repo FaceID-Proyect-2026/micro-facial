@@ -39,19 +39,11 @@ class FacialEmbeddingService:
         return await self._register_embedding(embedding_payload)
 
     async def _register_embedding(self, payload: FacialEmbeddingCreate) -> FacialEmbeddingResponse:
-        if not await self.repository.user_exists(payload.user_id):
-            raise LookupError("No existe un aprendiz/usuario con ese user_id.")
-
-        active = await self.repository.get_active_by_user(payload.user_id)
-        if active and not payload.replace_existing:
-            raise FileExistsError("El aprendiz ya tiene un embedding facial activo.")
+        apprentice_id = await self._resolve_apprentice_id(payload.user_id)
 
         try:
-            if active:
-                await self.repository.replace_active(payload.user_id, payload.created_by)
-
-            row = await self.repository.create(
-                user_id=payload.user_id,
+            row = await self.repository.upsert(
+                user_id=apprentice_id,
                 embedding=payload.embedding,
                 model_name=payload.model_name,
                 photo_reference=payload.photo_reference,
@@ -65,7 +57,8 @@ class FacialEmbeddingService:
         return FacialEmbeddingResponse.model_validate(row)
 
     async def get_active_by_user(self, user_id: UUID) -> FacialEmbeddingResponse | None:
-        row = await self.repository.get_active_by_user(user_id)
+        apprentice_id = await self._resolve_apprentice_id(user_id)
+        row = await self.repository.get_active_by_user(apprentice_id)
         return FacialEmbeddingResponse.model_validate(row) if row else None
 
     async def update_partial(
@@ -85,8 +78,7 @@ class FacialEmbeddingService:
         if "model_name" in payload.model_fields_set and payload.model_name is None:
             raise ValueError("model_name no puede ser nulo.")
 
-        if not await self.repository.user_exists(user_id):
-            raise LookupError("No existe un aprendiz/usuario con ese user_id.")
+        apprentice_id = await self._resolve_apprentice_id(user_id)
 
         embedding = payload.embedding if "embedding" in payload.model_fields_set else None
         model_name = payload.model_name if "model_name" in payload.model_fields_set else None
@@ -97,7 +89,7 @@ class FacialEmbeddingService:
 
         try:
             row = await self.repository.update_active(
-                user_id=user_id,
+                user_id=apprentice_id,
                 embedding=embedding,
                 model_name=model_name,
                 photo_reference=payload.photo_reference,
@@ -118,10 +110,17 @@ class FacialEmbeddingService:
         return [FacialEmbeddingSummary.model_validate(row) for row in rows]
 
     async def deactivate(self, user_id: UUID, deleted_by: str) -> bool:
+        apprentice_id = await self._resolve_apprentice_id(user_id)
         try:
-            deleted = await self.repository.deactivate(user_id, deleted_by)
+            deleted = await self.repository.deactivate(apprentice_id, deleted_by)
             await self.session.commit()
         except Exception:
             await self.session.rollback()
             raise
         return deleted
+
+    async def _resolve_apprentice_id(self, user_id: UUID) -> UUID:
+        apprentice_id = await self.repository.resolve_apprentice_id(user_id)
+        if apprentice_id is None:
+            return user_id
+        return apprentice_id

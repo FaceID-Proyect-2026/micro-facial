@@ -9,21 +9,23 @@ class FacialEmbeddingRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def user_exists(self, user_id: UUID) -> bool:
+    async def resolve_apprentice_id(self, user_id: UUID) -> UUID | None:
         result = await self.session.execute(
             text(
                 """
-                SELECT EXISTS (
-                    SELECT 1
-                    FROM security.user_app
-                    WHERE id_user_app = :user_id
-                      AND deleted_at IS NULL
-                )
+                SELECT id_apprentice
+                FROM academic.apprentice
+                WHERE deleted_at IS NULL
+                  AND (
+                    id_apprentice = :user_id
+                    OR id_user_app = :user_id
+                  )
+                LIMIT 1
                 """
             ),
             {"user_id": user_id},
         )
-        return bool(result.scalar_one())
+        return result.scalar_one_or_none()
 
     async def get_active_by_user(self, user_id: UUID) -> dict[str, Any] | None:
         result = await self.session.execute(
@@ -31,7 +33,7 @@ class FacialEmbeddingRepository:
                 """
                 SELECT
                     id_user_face AS id,
-                    id_user_app AS user_id,
+                    id_apprentice AS user_id,
                     embedding,
                     embedding_dimension,
                     model_name,
@@ -39,7 +41,7 @@ class FacialEmbeddingRepository:
                     status,
                     created_at
                 FROM facialrecognition.user_face
-                WHERE id_user_app = :user_id
+                WHERE id_apprentice = :user_id
                   AND status = 'ACTIVE'
                   AND deleted_at IS NULL
                 """
@@ -49,22 +51,7 @@ class FacialEmbeddingRepository:
         row = result.mappings().one_or_none()
         return dict(row) if row else None
 
-    async def replace_active(self, user_id: UUID, updated_by: str) -> None:
-        await self.session.execute(
-            text(
-                """
-                UPDATE facialrecognition.user_face
-                SET status = 'REPLACED',
-                    updated_at = NOW(),
-                    updated_by = :updated_by
-                WHERE id_user_app = :user_id
-                  AND status = 'ACTIVE'
-                """
-            ),
-            {"user_id": user_id, "updated_by": updated_by},
-        )
-
-    async def create(
+    async def upsert(
         self,
         *,
         user_id: UUID,
@@ -77,7 +64,7 @@ class FacialEmbeddingRepository:
             text(
                 """
                 INSERT INTO facialrecognition.user_face (
-                    id_user_app,
+                    id_apprentice,
                     embedding,
                     embedding_dimension,
                     model_name,
@@ -94,9 +81,19 @@ class FacialEmbeddingRepository:
                     'ACTIVE',
                     :created_by
                 )
+                ON CONFLICT (id_apprentice) DO UPDATE
+                SET embedding = EXCLUDED.embedding,
+                    embedding_dimension = EXCLUDED.embedding_dimension,
+                    model_name = EXCLUDED.model_name,
+                    photo_reference = EXCLUDED.photo_reference,
+                    status = 'ACTIVE',
+                    updated_at = NOW(),
+                    updated_by = :created_by,
+                    deleted_at = NULL,
+                    deleted_by = NULL
                 RETURNING
                     id_user_face AS id,
-                    id_user_app AS user_id,
+                    id_apprentice AS user_id,
                     embedding,
                     embedding_dimension,
                     model_name,
@@ -152,12 +149,12 @@ class FacialEmbeddingRepository:
                 f"""
                 UPDATE facialrecognition.user_face
                 SET {", ".join(assignments)}
-                WHERE id_user_app = :user_id
+                WHERE id_apprentice = :user_id
                   AND status = 'ACTIVE'
                   AND deleted_at IS NULL
                 RETURNING
                     id_user_face AS id,
-                    id_user_app AS user_id,
+                    id_apprentice AS user_id,
                     embedding,
                     embedding_dimension,
                     model_name,
@@ -177,7 +174,7 @@ class FacialEmbeddingRepository:
                 """
                 SELECT
                     id_user_face AS id,
-                    id_user_app AS user_id,
+                    id_apprentice AS user_id,
                     embedding_dimension,
                     model_name,
                     status,
@@ -201,7 +198,7 @@ class FacialEmbeddingRepository:
                 SET status = 'DELETED',
                     deleted_at = NOW(),
                     deleted_by = :deleted_by
-                WHERE id_user_app = :user_id
+                WHERE id_apprentice = :user_id
                   AND status = 'ACTIVE'
                   AND deleted_at IS NULL
                 """

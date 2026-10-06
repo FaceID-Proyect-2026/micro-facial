@@ -37,9 +37,9 @@ OpenAPI queda disponible en:
 
 - `POST /api/v1/facial-embeddings` guarda un embedding facial activo por aprendiz.
 - `POST /api/v1/facial-embeddings/from-image` genera el embedding con InsightFace desde una imagen y lo guarda.
-- `GET /api/v1/facial-embeddings/users/{user_id}` consulta el embedding activo.
-- `PATCH /api/v1/facial-embeddings/users/{user_id}` actualiza parcialmente el embedding activo.
-- `DELETE /api/v1/facial-embeddings/users/{user_id}` desactiva el embedding activo.
+- `GET /api/v1/facial-embeddings/users/{user_id}` consulta el embedding activo. `user_id` puede ser `academic.apprentice.id_apprentice` o `academic.apprentice.id_user_app`.
+- `PATCH /api/v1/facial-embeddings/users/{user_id}` actualiza parcialmente el embedding activo. `user_id` puede ser `academic.apprentice.id_apprentice` o `academic.apprentice.id_user_app`.
+- `DELETE /api/v1/facial-embeddings/users/{user_id}` desactiva el embedding activo. `user_id` puede ser `academic.apprentice.id_apprentice` o `academic.apprentice.id_user_app`.
 - `GET /health` verifica el estado del servicio.
 
 Incluye `X-API-Key` en las peticiones cuando `API_KEY` tenga valor.
@@ -50,7 +50,7 @@ Incluye `X-API-Key` en las peticiones cuando `API_KEY` tenga valor.
 
 ```json
 {
-  "user_id": "uuid-del-aprendiz",
+  "user_id": "uuid-del-aprendiz-o-del-usuario",
   "image_base64": "data:image/jpeg;base64,...",
   "photo_reference": "capture://registro-aprendiz.jpg",
   "replace_existing": false,
@@ -58,7 +58,7 @@ Incluye `X-API-Key` en las peticiones cuando `API_KEY` tenga valor.
 }
 ```
 
-El endpoint detecta exactamente un rostro con InsightFace, genera el vector facial y lo persiste en `facialrecognition.user_face`.
+El endpoint detecta exactamente un rostro con InsightFace, genera el vector facial y lo persiste en `facialrecognition.user_face.id_apprentice`.
 
 ## Actualizar parcialmente un embedding
 
