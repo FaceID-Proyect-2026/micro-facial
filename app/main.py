@@ -8,6 +8,7 @@ from starlette.requests import Request
 
 from app.api.v1.router import api_router
 from app.core.config import settings
+from app.workers.face_embedding_worker import get_face_embedding_worker
 
 logger = logging.getLogger("facelit.embedding")
 
@@ -50,6 +51,15 @@ def create_app() -> FastAPI:
     @app.get("/health", tags=["health"])
     async def health() -> dict[str, str]:
         return {"status": "ok", "service": settings.app_name}
+
+    @app.on_event("startup")
+    async def warm_up_model() -> None:
+        if not settings.preload_model:
+            logger.info("InsightFace startup warm-up disabled")
+            return
+        logger.info("Warming up InsightFace model")
+        get_face_embedding_worker().warm_up()
+        logger.info("InsightFace model ready")
 
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request, exc: RequestValidationError):

@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     insightface_model_name: str = "buffalo_l"
     insightface_det_size: int = 640
     insightface_ctx_id: int = -1
+    preload_model: bool = False
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 

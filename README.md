@@ -23,7 +23,7 @@ API_KEY=change-me
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8090
+uvicorn app.main:app --port 8090
 ```
 
 En Windows, si `pip install -r requirements.txt` falla instalando `insightface` con un mensaje de Microsoft Visual C++ 14.0, instala "Microsoft C++ Build Tools" y repite la instalacion. Con Docker, el `Dockerfile` ya incluye herramientas de compilacion para Linux.
@@ -91,8 +91,38 @@ Tambien puede enviarse un vector ya calculado:
 Todos los campos son opcionales salvo que debe enviarse al menos uno entre `image_base64`, `embedding`, `model_name` o `photo_reference`. Si se envia `image_base64`, el servicio genera el embedding con InsightFace. Si se envia `embedding`, el servicio recalcula `embedding_dimension`.
 
 
-# Comando de ejecución
+# Comando de ejecucion local
 
 ```
-.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8090
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --port 8090
+```
+
+En Windows evita `--reload` si aparece `PermissionError: [WinError 5] Acceso denegado`;
+ese error viene del subproceso de recarga de Uvicorn, no del servicio.
+
+# En pc propio
+```
+APP_NAME=FaceLit Embedding Service
+ENVIRONMENT=local
+API_KEY=change-me
+DATABASE_URL=postgresql+asyncpg://facelit_user:facelit_password@localhost:5439/facelit-db
+CORS_ORIGINS=["http://localhost:8081","http://localhost:19006","http://localhost:3000"]
+MIN_EMBEDDING_DIMENSION=32
+MAX_EMBEDDING_DIMENSION=4096
+```
+
+# En contenedor
+```
+APP_NAME=FaceLit Embedding Service
+ENVIRONMENT=local
+API_KEY=change-me
+DATABASE_URL=postgresql+asyncpg://facelit_user:facelit_password@postgres:5432/facelit-db
+CORS_ORIGINS=["http://localhost:8081","http://localhost:19006","http://localhost:3000"]
+MIN_EMBEDDING_DIMENSION=32
+MAX_EMBEDDING_DIMENSION=4096
+```
+
+# Docs
+```
+http://localhost:8090/docs
 ```

@@ -36,6 +36,9 @@ class FaceEmbeddingWorker:
             face_count=len(faces),
         )
 
+    def warm_up(self) -> None:
+        self._get_model()
+
     def _get_model(self):
         if self._model is None:
             matplotlib_cache = Path(".cache") / "matplotlib"
