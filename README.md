@@ -111,6 +111,11 @@ MIN_EMBEDDING_DIMENSION=32
 MAX_EMBEDDING_DIMENSION=4096
 ```
 
+# comando para ejecutar el contenedor
+```
+docker compose up -d --build       
+```
+
 # En contenedor
 ```
 APP_NAME=FaceLit Embedding Service
