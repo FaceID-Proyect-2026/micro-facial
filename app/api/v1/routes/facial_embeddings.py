@@ -10,6 +10,8 @@ from app.schemas.facial_embedding import (
     FacialEmbeddingPartialUpdate,
     FacialEmbeddingResponse,
     FacialEmbeddingSummary,
+    FacialVerificationRequest,
+    FacialVerificationResponse,
 )
 from app.services.facial_embedding_service import FacialEmbeddingService
 
@@ -52,6 +54,22 @@ async def register_facial_embedding_from_image(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.post(
+    "/verify-session",
+    response_model=FacialVerificationResponse,
+    summary="Verificar rostro temporal contra los aprendices de una sesion",
+)
+async def verify_session_face(
+    payload: FacialVerificationRequest,
+    session: AsyncSession = Depends(db_session),
+) -> FacialVerificationResponse:
+    service = FacialEmbeddingService(session)
+    try:
+        return await service.verify_session_face(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @router.get(

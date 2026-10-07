@@ -5,6 +5,10 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
+def vector_literal(embedding: list[float]) -> str:
+    return "[" + ",".join(str(float(value)) for value in embedding) + "]"
+
+
 class FacialEmbeddingRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
@@ -34,7 +38,7 @@ class FacialEmbeddingRepository:
                 SELECT
                     id_user_face AS id,
                     id_apprentice AS user_id,
-                    embedding,
+                    embedding::REAL[] AS embedding,
                     embedding_dimension,
                     model_name,
                     photo_reference,
@@ -74,7 +78,7 @@ class FacialEmbeddingRepository:
                 )
                 VALUES (
                     :user_id,
-                    :embedding,
+                    CAST(:embedding AS vector),
                     :embedding_dimension,
                     :model_name,
                     :photo_reference,
@@ -94,7 +98,7 @@ class FacialEmbeddingRepository:
                 RETURNING
                     id_user_face AS id,
                     id_apprentice AS user_id,
-                    embedding,
+                    embedding::REAL[] AS embedding,
                     embedding_dimension,
                     model_name,
                     photo_reference,
@@ -104,7 +108,7 @@ class FacialEmbeddingRepository:
             ),
             {
                 "user_id": user_id,
-                "embedding": embedding,
+                "embedding": vector_literal(embedding),
                 "embedding_dimension": len(embedding),
                 "model_name": model_name,
                 "photo_reference": photo_reference,
@@ -129,11 +133,11 @@ class FacialEmbeddingRepository:
         if embedding is not None:
             assignments.extend(
                 [
-                    "embedding = :embedding",
+                    "embedding = CAST(:embedding AS vector)",
                     "embedding_dimension = :embedding_dimension",
                 ]
             )
-            params["embedding"] = embedding
+            params["embedding"] = vector_literal(embedding)
             params["embedding_dimension"] = len(embedding)
 
         if model_name is not None:
@@ -155,7 +159,7 @@ class FacialEmbeddingRepository:
                 RETURNING
                     id_user_face AS id,
                     id_apprentice AS user_id,
-                    embedding,
+                    embedding::REAL[] AS embedding,
                     embedding_dimension,
                     model_name,
                     photo_reference,
@@ -206,3 +210,39 @@ class FacialEmbeddingRepository:
             {"user_id": user_id, "deleted_by": deleted_by},
         )
         return bool(result.rowcount)
+
+    async def find_best_session_match(
+        self,
+        *,
+        record_environment_id: UUID,
+        embedding: list[float],
+    ) -> dict[str, Any] | None:
+        result = await self.session.execute(
+            text(
+                """
+                SELECT
+                    uf.id_apprentice,
+                    1 - (uf.embedding <=> CAST(:embedding AS vector)) AS similarity
+                FROM facialrecognition.user_face uf
+                JOIN academic.apprentice_chip ac
+                  ON ac.id_apprentice = uf.id_apprentice
+                JOIN environment.record_environment re
+                  ON re.id_chip = ac.id_chip
+                WHERE re.id_record_environment = :record_environment_id
+                  AND re.active = TRUE
+                  AND re.deleted_at IS NULL
+                  AND ac.state = 'ACTIVE'
+                  AND ac.deleted_at IS NULL
+                  AND uf.status = 'ACTIVE'
+                  AND uf.deleted_at IS NULL
+                ORDER BY uf.embedding <=> CAST(:embedding AS vector)
+                LIMIT 1
+                """
+            ),
+            {
+                "record_environment_id": record_environment_id,
+                "embedding": vector_literal(embedding),
+            },
+        )
+        row = result.mappings().one_or_none()
+        return dict(row) if row else None

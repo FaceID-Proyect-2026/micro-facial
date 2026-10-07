@@ -45,6 +45,28 @@ class FacialEmbeddingFromImageCreate(BaseModel):
     created_by: str = Field(default="embedding-service", max_length=100)
 
 
+class FacialVerificationRequest(BaseModel):
+    record_environment_id: UUID = Field(
+        ...,
+        validation_alias=AliasChoices("record_environment_id", "recordEnvironmentId"),
+        description="Sesion activa creada por el instructor en environment.record_environment.",
+    )
+    image_base64: str = Field(
+        ...,
+        min_length=1,
+        validation_alias=AliasChoices("image_base64", "imageBase64"),
+        description="Imagen capturada durante la sesion. El embedding generado no se persiste.",
+    )
+    threshold: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Umbral opcional de similaridad coseno. Si no se envia usa la configuracion del servicio.",
+    )
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class FacialEmbeddingPartialUpdate(BaseModel):
     embedding: list[float] | None = Field(
         default=None,
@@ -100,3 +122,12 @@ class FacialEmbeddingSummary(BaseModel):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class FacialVerificationResponse(BaseModel):
+    match: bool
+    id_apprentice: UUID | None = None
+    similarity: float | None = None
+    threshold: float
+    model_name: str
+    reason: str

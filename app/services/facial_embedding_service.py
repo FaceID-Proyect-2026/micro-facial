@@ -2,6 +2,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.repositories.facial_embedding_repository import FacialEmbeddingRepository
 from app.schemas.facial_embedding import (
     FacialEmbeddingCreate,
@@ -9,6 +10,8 @@ from app.schemas.facial_embedding import (
     FacialEmbeddingPartialUpdate,
     FacialEmbeddingResponse,
     FacialEmbeddingSummary,
+    FacialVerificationRequest,
+    FacialVerificationResponse,
 )
 from app.workers.face_embedding_worker import FaceEmbeddingWorker, get_face_embedding_worker
 
@@ -37,6 +40,42 @@ class FacialEmbeddingService:
             created_by=payload.created_by,
         )
         return await self._register_embedding(embedding_payload)
+
+    async def verify_session_face(self, payload: FacialVerificationRequest) -> FacialVerificationResponse:
+        generated = self.embedding_worker.generate(payload.image_base64)
+        threshold = payload.threshold if payload.threshold is not None else settings.facial_match_threshold
+
+        row = await self.repository.find_best_session_match(
+            record_environment_id=payload.record_environment_id,
+            embedding=generated.embedding,
+        )
+        if row is None:
+            return FacialVerificationResponse(
+                match=False,
+                threshold=threshold,
+                model_name=generated.model_name,
+                reason="NO_ACTIVE_CANDIDATES",
+            )
+
+        similarity = float(row["similarity"])
+        if similarity < threshold:
+            return FacialVerificationResponse(
+                match=False,
+                id_apprentice=row["id_apprentice"],
+                similarity=similarity,
+                threshold=threshold,
+                model_name=generated.model_name,
+                reason="BELOW_THRESHOLD",
+            )
+
+        return FacialVerificationResponse(
+            match=True,
+            id_apprentice=row["id_apprentice"],
+            similarity=similarity,
+            threshold=threshold,
+            model_name=generated.model_name,
+            reason="MATCH_FOUND",
+        )
 
     async def _register_embedding(self, payload: FacialEmbeddingCreate) -> FacialEmbeddingResponse:
         apprentice_id = await self._resolve_apprentice_id(payload.user_id)

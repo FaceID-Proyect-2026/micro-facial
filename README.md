@@ -37,6 +37,7 @@ OpenAPI queda disponible en:
 
 - `POST /api/v1/facial-embeddings` guarda un embedding facial activo por aprendiz.
 - `POST /api/v1/facial-embeddings/from-image` genera el embedding con InsightFace desde una imagen y lo guarda.
+- `POST /api/v1/facial-embeddings/verify-session` genera un embedding temporal desde una imagen, lo compara contra los aprendices activos de la ficha de `record_environment` y responde si coincide.
 - `GET /api/v1/facial-embeddings/users/{user_id}` consulta el embedding activo. `user_id` puede ser `academic.apprentice.id_apprentice` o `academic.apprentice.id_user_app`.
 - `PATCH /api/v1/facial-embeddings/users/{user_id}` actualiza parcialmente el embedding activo. `user_id` puede ser `academic.apprentice.id_apprentice` o `academic.apprentice.id_user_app`.
 - `DELETE /api/v1/facial-embeddings/users/{user_id}` desactiva el embedding activo. `user_id` puede ser `academic.apprentice.id_apprentice` o `academic.apprentice.id_user_app`.
@@ -59,6 +60,39 @@ Incluye `X-API-Key` en las peticiones cuando `API_KEY` tenga valor.
 ```
 
 El endpoint detecta exactamente un rostro con InsightFace, genera el vector facial y lo persiste en `facialrecognition.user_face.id_apprentice`.
+
+## Verificar rostro temporal en una sesion
+
+`POST /api/v1/facial-embeddings/verify-session`
+
+```json
+{
+  "record_environment_id": "uuid-de-la-sesion",
+  "image_base64": "data:image/jpeg;base64,...",
+  "threshold": 0.65
+}
+```
+
+El microservicio genera el embedding solo en memoria y consulta los candidatos con esta ruta:
+
+```text
+environment.record_environment -> academic.apprentice_chip -> facialrecognition.user_face
+```
+
+Solo compara contra aprendices activos de la ficha asociada a la sesion activa. La respuesta esta pensada para que el backend decida si crea `facialrecognition.facial_event`:
+
+```json
+{
+  "match": true,
+  "id_apprentice": "uuid-del-aprendiz",
+  "similarity": 0.82,
+  "threshold": 0.65,
+  "model_name": "insightface/buffalo_l",
+  "reason": "MATCH_FOUND"
+}
+```
+
+Si `match` es `false`, el backend no debe crear asistencia aprobada y puede responder al frontend con "rostro no coincide".
 
 ## Actualizar parcialmente un embedding
 

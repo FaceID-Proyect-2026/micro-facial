@@ -23,6 +23,12 @@ class Settings(BaseSettings):
     )
     min_embedding_dimension: int = 32
     max_embedding_dimension: int = 4096
+    facial_match_threshold: float = Field(
+        default=0.65,
+        ge=0.0,
+        le=1.0,
+        description="Similaridad coseno minima para aceptar una coincidencia facial.",
+    )
     insightface_model_name: str = "buffalo_l"
     insightface_det_size: int = 640
     insightface_ctx_id: int = -1
