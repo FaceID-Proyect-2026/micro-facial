@@ -40,7 +40,7 @@ class FacialEmbeddingFromImageCreate(BaseModel):
     image_frames: list[str] = Field(
         default_factory=list,
         min_length=0,
-        max_length=8,
+        max_length=18,
         validation_alias=AliasChoices("image_frames", "imageFrames"),
         description="Secuencia opcional de frames capturados en vivo antes de guardar el embedding.",
     )
@@ -49,6 +49,12 @@ class FacialEmbeddingFromImageCreate(BaseModel):
         max_length=40,
         validation_alias=AliasChoices("liveness_challenge", "livenessChallenge"),
         description="Reto solicitado por la app para validar vida antes de guardar el embedding.",
+    )
+    liveness_challenges: list[str] = Field(
+        default_factory=list,
+        max_length=3,
+        validation_alias=AliasChoices("liveness_challenges", "livenessChallenges"),
+        description="Secuencia de retos solicitados por la app para validar vida paso a paso.",
     )
     photo_reference: str | None = Field(default=None, max_length=500)
     replace_existing: bool = Field(
@@ -75,7 +81,7 @@ class FacialVerificationRequest(BaseModel):
     image_frames: list[str] = Field(
         default_factory=list,
         min_length=0,
-        max_length=8,
+        max_length=18,
         validation_alias=AliasChoices("image_frames", "imageFrames"),
         description="Secuencia de frames capturados en vivo para validar vida.",
     )
@@ -85,6 +91,12 @@ class FacialVerificationRequest(BaseModel):
         validation_alias=AliasChoices("liveness_challenge", "livenessChallenge"),
         description="Reto solicitado por la app para validar movimiento vivo.",
     )
+    liveness_challenges: list[str] = Field(
+        default_factory=list,
+        max_length=3,
+        validation_alias=AliasChoices("liveness_challenges", "livenessChallenges"),
+        description="Secuencia de retos solicitados por la app para validar movimiento vivo paso a paso.",
+    )
     threshold: float | None = Field(
         default=None,
         ge=0.0,
@@ -93,6 +105,29 @@ class FacialVerificationRequest(BaseModel):
     )
 
     model_config = ConfigDict(populate_by_name=True)
+
+
+class FacialLivenessCheckRequest(BaseModel):
+    image_frames: list[str] = Field(
+        default_factory=list,
+        min_length=0,
+        max_length=18,
+        validation_alias=AliasChoices("image_frames", "imageFrames"),
+        description="Frames capturados para validar un reto de vida puntual.",
+    )
+    liveness_challenge: str | None = Field(
+        default=None,
+        max_length=40,
+        validation_alias=AliasChoices("liveness_challenge", "livenessChallenge"),
+        description="Reto solicitado por la app para validar el bloque actual.",
+    )
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class FacialLivenessCheckResponse(BaseModel):
+    live: bool
+    reason: str
 
 
 class FacialEmbeddingPartialUpdate(BaseModel):
