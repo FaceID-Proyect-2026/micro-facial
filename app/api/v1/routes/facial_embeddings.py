@@ -10,6 +10,8 @@ from app.schemas.facial_embedding import (
     FacialEmbeddingPartialUpdate,
     FacialEmbeddingResponse,
     FacialEmbeddingSummary,
+    FacialLivenessCheckRequest,
+    FacialLivenessCheckResponse,
     FacialVerificationRequest,
     FacialVerificationResponse,
 )
@@ -68,6 +70,22 @@ async def verify_session_face(
     service = FacialEmbeddingService(session)
     try:
         return await service.verify_session_face(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post(
+    "/liveness-check",
+    response_model=FacialLivenessCheckResponse,
+    summary="Validar un reto de vida puntual sin registrar ni comparar identidad",
+)
+async def check_liveness(
+    payload: FacialLivenessCheckRequest,
+    session: AsyncSession = Depends(db_session),
+) -> FacialLivenessCheckResponse:
+    service = FacialEmbeddingService(session)
+    try:
+        return service.check_liveness(payload)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 

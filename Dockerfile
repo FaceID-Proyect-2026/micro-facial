@@ -16,10 +16,6 @@ RUN pip install --no-cache-dir --default-timeout=180 --retries=10 -r requirement
 
 COPY app ./app
 
-# Preload InsightFace so the first enrollment request does not spend minutes
-# downloading and preparing the model.
-RUN python -c "from app.workers.face_embedding_worker import get_face_embedding_worker; get_face_embedding_worker().warm_up()"
-
 EXPOSE 8090
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8090"]

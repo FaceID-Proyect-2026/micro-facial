@@ -36,9 +36,9 @@ class Settings(BaseSettings):
         description="Cantidad minima de frames requeridos para validar vida en asistencia.",
     )
     liveness_max_frames: int = Field(
-        default=6,
+        default=15,
         ge=2,
-        le=12,
+        le=24,
         description="Cantidad maxima de frames que se procesan para validar vida.",
     )
     liveness_min_landmark_motion: float = Field(

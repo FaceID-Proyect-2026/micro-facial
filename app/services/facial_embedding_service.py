@@ -12,6 +12,8 @@ from app.schemas.facial_embedding import (
     FacialEmbeddingPartialUpdate,
     FacialEmbeddingResponse,
     FacialEmbeddingSummary,
+    FacialLivenessCheckRequest,
+    FacialLivenessCheckResponse,
     FacialVerificationRequest,
     FacialVerificationResponse,
 )
@@ -47,20 +49,21 @@ class FacialEmbeddingService:
 
     def _generate_registration_embedding(self, payload: FacialEmbeddingFromImageCreate):
         frames = payload.image_frames[: settings.liveness_max_frames]
+        challenges = self._resolve_liveness_challenges(payload.liveness_challenges, payload.liveness_challenge)
         if not frames:
             return self.embedding_worker.generate(payload.image_base64)
         if len(frames) < settings.liveness_min_frames:
             raise ValueError("Se requiere una secuencia de frames capturada en vivo.")
 
         generated_frames = [self.embedding_worker.generate(frame) for frame in frames]
-        live, liveness_reason = self._validate_liveness(generated_frames, payload.liveness_challenge)
+        live, liveness_reason = self._validate_liveness_sequence(generated_frames, challenges)
         if not live:
             raise ValueError(liveness_reason)
         logger.info(
-            "from-image liveness accepted: user=%s frames=%s challenge=%s reason=%s",
+            "from-image liveness accepted: user=%s frames=%s challenges=%s reason=%s",
             payload.user_id,
             len(frames),
-            payload.liveness_challenge,
+            challenges,
             liveness_reason,
         )
         return generated_frames[-1]
@@ -68,11 +71,12 @@ class FacialEmbeddingService:
     async def verify_session_face(self, payload: FacialVerificationRequest) -> FacialVerificationResponse:
         threshold = payload.threshold if payload.threshold is not None else settings.facial_match_threshold
         frames = payload.image_frames[: settings.liveness_max_frames]
+        challenges = self._resolve_liveness_challenges(payload.liveness_challenges, payload.liveness_challenge)
         if len(frames) < settings.liveness_min_frames:
             logger.info(
-                "verify-session rejected: reason=LIVENESS_REQUIRED frames=%s challenge=%s",
+                "verify-session rejected: reason=LIVENESS_REQUIRED frames=%s challenges=%s",
                 len(frames),
-                payload.liveness_challenge,
+                challenges,
             )
             return FacialVerificationResponse(
                 match=False,
@@ -84,14 +88,14 @@ class FacialEmbeddingService:
             )
 
         generated_frames = [self.embedding_worker.generate(frame) for frame in frames]
-        live, liveness_reason = self._validate_liveness(generated_frames, payload.liveness_challenge)
+        live, liveness_reason = self._validate_liveness_sequence(generated_frames, challenges)
         generated = generated_frames[-1]
         if not live:
             logger.info(
-                "verify-session rejected: reason=LIVENESS_FAILED liveness_reason=%s frames=%s challenge=%s",
+                "verify-session rejected: reason=LIVENESS_FAILED liveness_reason=%s frames=%s challenges=%s",
                 liveness_reason,
                 len(frames),
-                payload.liveness_challenge,
+                challenges,
             )
             return FacialVerificationResponse(
                 match=False,
@@ -108,9 +112,9 @@ class FacialEmbeddingService:
         )
         if row is None:
             logger.info(
-                "verify-session rejected: reason=NO_ACTIVE_CANDIDATES live=true frames=%s challenge=%s",
+                "verify-session rejected: reason=NO_ACTIVE_CANDIDATES live=true frames=%s challenges=%s",
                 len(frames),
-                payload.liveness_challenge,
+                challenges,
             )
             return FacialVerificationResponse(
                 match=False,
@@ -124,11 +128,11 @@ class FacialEmbeddingService:
         similarity = float(row["similarity"])
         if similarity < threshold:
             logger.info(
-                "verify-session rejected: reason=BELOW_THRESHOLD live=true apprentice=%s similarity=%.4f threshold=%.4f challenge=%s",
+                "verify-session rejected: reason=BELOW_THRESHOLD live=true apprentice=%s similarity=%.4f threshold=%.4f challenges=%s",
                 row["id_apprentice"],
                 similarity,
                 threshold,
-                payload.liveness_challenge,
+                challenges,
             )
             return FacialVerificationResponse(
                 match=False,
@@ -142,11 +146,11 @@ class FacialEmbeddingService:
             )
 
         logger.info(
-            "verify-session accepted: reason=MATCH_FOUND live=true apprentice=%s similarity=%.4f threshold=%.4f challenge=%s",
+            "verify-session accepted: reason=MATCH_FOUND live=true apprentice=%s similarity=%.4f threshold=%.4f challenges=%s",
             row["id_apprentice"],
             similarity,
             threshold,
-            payload.liveness_challenge,
+            challenges,
         )
         return FacialVerificationResponse(
             match=True,
@@ -158,6 +162,49 @@ class FacialEmbeddingService:
             reason="MATCH_FOUND",
             liveness_reason="LIVE_OK",
         )
+
+    def check_liveness(self, payload: FacialLivenessCheckRequest) -> FacialLivenessCheckResponse:
+        frames = payload.image_frames[: settings.liveness_max_frames]
+        if len(frames) < settings.liveness_min_frames:
+            return FacialLivenessCheckResponse(
+                live=False,
+                reason="La cámara no capturó suficientes imágenes para validar el reto.",
+            )
+
+        generated_frames = [self.embedding_worker.generate(frame) for frame in frames]
+        live, reason = self._validate_liveness(generated_frames, payload.liveness_challenge)
+        return FacialLivenessCheckResponse(live=live, reason=reason)
+
+    def _validate_liveness_sequence(self, frames, challenges: list[str]) -> tuple[bool, str]:
+        if not challenges:
+            return self._validate_liveness(frames)
+
+        if len(challenges) == 1:
+            return self._validate_liveness(frames, challenges[0])
+
+        required_frames = settings.liveness_min_frames * len(challenges)
+        if len(frames) < required_frames:
+            return False, f"La secuencia requiere {len(challenges)} retos completos."
+
+        reference = frames[0]
+        if any(self._cosine_similarity(reference.embedding, frame.embedding) < settings.liveness_min_embedding_similarity for frame in frames[1:]):
+            return False, "La secuencia no corresponde de forma consistente a la misma persona."
+
+        frames_per_challenge = len(frames) // len(challenges)
+        if frames_per_challenge < settings.liveness_min_frames:
+            return False, "Cada reto requiere suficientes frames capturados en vivo."
+
+        for index, challenge in enumerate(challenges):
+            start = index * frames_per_challenge
+            end = start + frames_per_challenge
+            if index == len(challenges) - 1:
+                end = len(frames)
+            chunk = frames[start:end]
+            live, reason = self._validate_liveness(chunk, challenge)
+            if not live:
+                return False, f"Reto {index + 1}/{len(challenges)} fallido: {reason}"
+
+        return True, "LIVE_OK_SEQUENCE"
 
     def _validate_liveness(self, frames, challenge: str | None = None) -> tuple[bool, str]:
         if any(not frame.landmarks or len(frame.landmarks) < 2 for frame in frames):
@@ -189,12 +236,29 @@ class FacialEmbeddingService:
         if (
             max_landmark_motion < settings.liveness_min_landmark_motion
             and max_box_motion < settings.liveness_min_box_motion
+            and self._is_generic_challenge(challenge)
         ):
             return False, "No se detecto movimiento facial suficiente; evita usar fotos o pantallas."
         if not challenge_ok:
             return False, challenge_reason
 
         return True, "LIVE_OK"
+
+    @staticmethod
+    def _resolve_liveness_challenges(challenges: list[str] | None, challenge: str | None) -> list[str]:
+        resolved = [item.strip().upper() for item in (challenges or []) if item and item.strip()]
+        if resolved:
+            return resolved[:3]
+        if challenge and "," in challenge:
+            return [item.strip().upper() for item in challenge.split(",") if item.strip()][:3]
+        if challenge and challenge.strip():
+            return [challenge.strip().upper()]
+        return []
+
+    @staticmethod
+    def _is_generic_challenge(challenge: str | None) -> bool:
+        normalized = (challenge or "ANY_MOVEMENT").strip().upper()
+        return normalized in {"", "ANY_MOVEMENT"}
 
     @staticmethod
     def _cosine_similarity(left: list[float], right: list[float]) -> float:
