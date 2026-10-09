@@ -67,11 +67,15 @@ def test_accepts_session_verification_payload_aliases():
     payload = FacialVerificationRequest(
         recordEnvironmentId=record_environment_id,
         imageBase64="data:image/jpeg;base64,abc",
+        imageFrames=["data:image/jpeg;base64,abc"] * 3,
+        livenessChallenge="MOVE_LEFT",
         threshold=0.72,
     )
 
     assert payload.record_environment_id == record_environment_id
     assert payload.image_base64 == "data:image/jpeg;base64,abc"
+    assert len(payload.image_frames) == 3
+    assert payload.liveness_challenge == "MOVE_LEFT"
     assert payload.threshold == 0.72
 
 
@@ -99,7 +103,10 @@ def test_openapi_includes_partial_update_endpoint():
         == "#/components/schemas/FacialVerificationRequest"
     )
     partial_properties = schema["components"]["schemas"]["FacialEmbeddingPartialUpdate"]["properties"]
+    verification_properties = schema["components"]["schemas"]["FacialVerificationRequest"]["properties"]
     assert "image_base64" in partial_properties
+    assert "image_frames" in verification_properties
+    assert "liveness_challenge" in verification_properties
     assert "created_at" in response_properties
     assert "registered_at" not in response_properties
     assert "created_at" in summary_properties

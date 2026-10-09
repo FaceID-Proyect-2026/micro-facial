@@ -37,12 +37,27 @@ class FacialEmbeddingCreate(BaseModel):
 class FacialEmbeddingFromImageCreate(BaseModel):
     user_id: UUID = Field(..., description="ID del aprendiz en academic.apprentice o id_user_app del usuario.")
     image_base64: str = Field(..., min_length=1, description="Imagen facial en base64 o data URI.")
+    image_frames: list[str] = Field(
+        default_factory=list,
+        min_length=0,
+        max_length=8,
+        validation_alias=AliasChoices("image_frames", "imageFrames"),
+        description="Secuencia opcional de frames capturados en vivo antes de guardar el embedding.",
+    )
+    liveness_challenge: str | None = Field(
+        default=None,
+        max_length=40,
+        validation_alias=AliasChoices("liveness_challenge", "livenessChallenge"),
+        description="Reto solicitado por la app para validar vida antes de guardar el embedding.",
+    )
     photo_reference: str | None = Field(default=None, max_length=500)
     replace_existing: bool = Field(
         default=False,
         description="Si es true, reemplaza el embedding activo anterior del aprendiz.",
     )
     created_by: str = Field(default="embedding-service", max_length=100)
+
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class FacialVerificationRequest(BaseModel):
@@ -51,11 +66,24 @@ class FacialVerificationRequest(BaseModel):
         validation_alias=AliasChoices("record_environment_id", "recordEnvironmentId"),
         description="Sesion activa creada por el instructor en environment.record_environment.",
     )
-    image_base64: str = Field(
-        ...,
+    image_base64: str | None = Field(
+        default=None,
         min_length=1,
         validation_alias=AliasChoices("image_base64", "imageBase64"),
-        description="Imagen capturada durante la sesion. El embedding generado no se persiste.",
+        description="Imagen capturada durante la sesion. Se mantiene por compatibilidad; asistencia debe enviar image_frames.",
+    )
+    image_frames: list[str] = Field(
+        default_factory=list,
+        min_length=0,
+        max_length=8,
+        validation_alias=AliasChoices("image_frames", "imageFrames"),
+        description="Secuencia de frames capturados en vivo para validar vida.",
+    )
+    liveness_challenge: str | None = Field(
+        default=None,
+        max_length=40,
+        validation_alias=AliasChoices("liveness_challenge", "livenessChallenge"),
+        description="Reto solicitado por la app para validar movimiento vivo.",
     )
     threshold: float | None = Field(
         default=None,
@@ -126,8 +154,10 @@ class FacialEmbeddingSummary(BaseModel):
 
 class FacialVerificationResponse(BaseModel):
     match: bool
+    live: bool = False
     id_apprentice: UUID | None = None
     similarity: float | None = None
     threshold: float
     model_name: str
     reason: str
+    liveness_reason: str | None = None

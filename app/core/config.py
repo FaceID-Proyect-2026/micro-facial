@@ -29,6 +29,36 @@ class Settings(BaseSettings):
         le=1.0,
         description="Similaridad coseno minima para aceptar una coincidencia facial.",
     )
+    liveness_min_frames: int = Field(
+        default=3,
+        ge=2,
+        le=8,
+        description="Cantidad minima de frames requeridos para validar vida en asistencia.",
+    )
+    liveness_max_frames: int = Field(
+        default=6,
+        ge=2,
+        le=12,
+        description="Cantidad maxima de frames que se procesan para validar vida.",
+    )
+    liveness_min_landmark_motion: float = Field(
+        default=0.003,
+        ge=0.0,
+        le=0.25,
+        description="Movimiento minimo normalizado de landmarks para rechazar fotos estaticas.",
+    )
+    liveness_min_box_motion: float = Field(
+        default=0.008,
+        ge=0.0,
+        le=0.5,
+        description="Movimiento minimo normalizado del encuadre del rostro para aceptar vida.",
+    )
+    liveness_min_embedding_similarity: float = Field(
+        default=0.35,
+        ge=0.0,
+        le=1.0,
+        description="Similaridad minima entre frames para confirmar que la secuencia es de la misma persona.",
+    )
     insightface_model_name: str = "buffalo_l"
     insightface_det_size: int = 640
     insightface_ctx_id: int = -1
