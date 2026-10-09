@@ -171,12 +171,17 @@ class FacialEmbeddingService:
         max_box_motion = max(self._normalized_box_motion(reference, frame) for frame in frames[1:])
         challenge_ok, challenge_reason = self._validate_challenge(frames, challenge)
         logger.info(
-            "liveness metrics: landmark_motion=%.5f box_motion=%.5f eye_dark_delta=%.5f mouth_dark_delta=%.5f mouth_red_max=%.5f challenge=%s challenge_ok=%s challenge_reason=%s",
+            "liveness metrics: landmark_motion=%.5f box_motion=%.5f eye_dark_delta=%.5f mouth_dark_delta=%.5f mouth_red_max=%.5f mesh_eye_delta=%.5f mesh_eye_min=%.5f mesh_mouth_delta=%.5f mesh_mouth_max=%.5f mesh_tongue_max=%.5f challenge=%s challenge_ok=%s challenge_reason=%s",
             max_landmark_motion,
             max_box_motion,
             self._metric_delta(frames, "eye_dark_ratio"),
             self._metric_delta(frames, "mouth_dark_ratio"),
             self._metric_max(frames, "mouth_red_ratio"),
+            self._metric_delta(frames, "mesh_eye_ear"),
+            self._metric_min(frames, "mesh_eye_ear"),
+            self._metric_delta(frames, "mesh_mouth_open_ratio"),
+            self._metric_max(frames, "mesh_mouth_open_ratio"),
+            self._metric_max(frames, "mesh_mouth_red_ratio"),
             challenge,
             challenge_ok,
             challenge_reason,
@@ -187,7 +192,7 @@ class FacialEmbeddingService:
         ):
             return False, "No se detecto movimiento facial suficiente; evita usar fotos o pantallas."
         if not challenge_ok:
-            return True, f"LIVE_OK_RETO_TOLERADO: {challenge_reason}"
+            return False, challenge_reason
 
         return True, "LIVE_OK"
 
@@ -236,10 +241,32 @@ class FacialEmbeddingService:
         if normalized in {"", "ANY_MOVEMENT"}:
             return True, "LIVE_OK"
         if normalized == "BLINK":
+            if self._has_mesh_metrics(frames):
+                eye_delta = self._metric_delta(frames, "mesh_eye_ear")
+                eye_min = self._metric_min(frames, "mesh_eye_ear")
+                return (
+                    (eye_delta > 0.045 and eye_min < 0.23) or eye_delta > 0.075,
+                    "El reto era pestañear.",
+                )
             return self._metric_delta(frames, "eye_dark_ratio") > 0.018, "El reto era pestañear."
         if normalized == "OPEN_CLOSE_MOUTH":
+            if self._has_mesh_metrics(frames):
+                mouth_delta = self._metric_delta(frames, "mesh_mouth_open_ratio")
+                mouth_max = self._metric_max(frames, "mesh_mouth_open_ratio")
+                return (
+                    mouth_delta > 0.055 and mouth_max > 0.10,
+                    "El reto era abrir y cerrar la boca.",
+                )
             return self._metric_delta(frames, "mouth_dark_ratio") > 0.030, "El reto era abrir y cerrar la boca."
         if normalized == "STICK_TONGUE":
+            if self._has_mesh_metrics(frames):
+                red_max = self._metric_max(frames, "mesh_mouth_red_ratio")
+                red_delta = self._metric_delta(frames, "mesh_mouth_red_ratio")
+                mouth_max = self._metric_max(frames, "mesh_mouth_open_ratio")
+                return (
+                    (red_max > 0.060 and mouth_max > 0.075) or red_delta > 0.030,
+                    "El reto era sacar la lengua.",
+                )
             return self._metric_max(frames, "mouth_red_ratio") > 0.018, "El reto era sacar la lengua."
 
         first = frames[0]
@@ -277,6 +304,13 @@ class FacialEmbeddingService:
 
     def _metric_max(self, frames, key: str) -> float:
         return max(self._metric_values(frames, key), default=0.0)
+
+    def _metric_min(self, frames, key: str) -> float:
+        values = [value for value in self._metric_values(frames, key) if value > 0.0]
+        return min(values, default=0.0)
+
+    def _has_mesh_metrics(self, frames) -> bool:
+        return all(float(frame.image_metrics.get("mesh_available", 0.0)) >= 1.0 for frame in frames)
 
     async def _register_embedding(self, payload: FacialEmbeddingCreate) -> FacialEmbeddingResponse:
         apprentice_id = await self._resolve_apprentice_id(payload.user_id)
