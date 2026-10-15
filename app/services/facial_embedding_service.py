@@ -33,9 +33,16 @@ class FacialEmbeddingService:
         self.embedding_worker = embedding_worker or get_face_embedding_worker()
 
     async def register(self, payload: FacialEmbeddingCreate) -> FacialEmbeddingResponse:
+        if payload.reset_token is not None:
+            raise ValueError("El re-registro autorizado debe realizarse con captura en vivo desde from-image.")
         return await self._register_embedding(payload)
 
     async def register_from_image(self, payload: FacialEmbeddingFromImageCreate) -> FacialEmbeddingResponse:
+        if payload.reset_token is not None and (
+            len(payload.image_frames) < settings.liveness_min_frames * 3
+            or len(self._resolve_liveness_challenges(payload.liveness_challenges, payload.liveness_challenge)) != 3
+        ):
+            raise ValueError("El re-registro requiere tres retos de vida completos capturados en cámara.")
         generated = self._generate_registration_embedding(payload)
         embedding_payload = FacialEmbeddingCreate(
             user_id=payload.user_id,
@@ -43,6 +50,7 @@ class FacialEmbeddingService:
             model_name=generated.model_name,
             photo_reference=payload.photo_reference,
             replace_existing=payload.replace_existing,
+            reset_token=payload.reset_token,
             created_by=payload.created_by,
         )
         return await self._register_embedding(embedding_payload)
@@ -380,6 +388,7 @@ class FacialEmbeddingService:
         apprentice_id = await self._resolve_apprentice_id(payload.user_id)
 
         try:
+            await self.repository.authorize_registration(apprentice_id, payload.replace_existing, payload.reset_token)
             row = await self.repository.upsert(
                 user_id=apprentice_id,
                 embedding=payload.embedding,
@@ -404,6 +413,8 @@ class FacialEmbeddingService:
         user_id: UUID,
         payload: FacialEmbeddingPartialUpdate,
     ) -> FacialEmbeddingResponse:
+        if payload.embedding is not None or payload.image_base64 is not None:
+            raise ValueError("Para reemplazar el rostro solicita autorización y usa la captura en vivo de from-image.")
         editable_fields = {"embedding", "image_base64", "model_name", "photo_reference"}
         if not payload.model_fields_set.intersection(editable_fields):
             raise ValueError("Debe enviar al menos un campo para actualizar.")

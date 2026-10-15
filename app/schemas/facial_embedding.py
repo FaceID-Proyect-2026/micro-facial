@@ -8,6 +8,7 @@ from app.core.config import settings
 
 
 class FacialEmbeddingCreate(BaseModel):
+    reset_token: UUID | None = None
     user_id: UUID = Field(..., description="ID del aprendiz en academic.apprentice o id_user_app del usuario.")
     embedding: list[float] = Field(..., description="Vector facial generado por el modelo de reconocimiento.")
     model_name: str = Field(default="unknown", min_length=1, max_length=100)
@@ -35,6 +36,7 @@ class FacialEmbeddingCreate(BaseModel):
 
 
 class FacialEmbeddingFromImageCreate(BaseModel):
+    reset_token: UUID | None = None
     user_id: UUID = Field(..., description="ID del aprendiz en academic.apprentice o id_user_app del usuario.")
     image_base64: str = Field(..., min_length=1, description="Imagen facial en base64 o data URI.")
     image_frames: list[str] = Field(

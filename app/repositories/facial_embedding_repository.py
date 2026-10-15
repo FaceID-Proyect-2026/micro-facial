@@ -13,6 +13,35 @@ class FacialEmbeddingRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
+    async def authorize_registration(self, apprentice_id: UUID, replace_existing: bool, reset_token: UUID | None) -> None:
+        # Lock the owner row, including when no facial record exists yet.
+        owner = await self.session.execute(text("""
+            SELECT u.id_user_app FROM security.user_app u
+            JOIN academic.apprentice a ON a.id_user_app = u.id_user_app
+            WHERE a.id_apprentice = :id AND a.deleted_at IS NULL
+            FOR UPDATE OF u
+            """), {"id": apprentice_id})
+        user_id = owner.scalar_one_or_none()
+        if user_id is None:
+            raise LookupError("Aprendiz no encontrado.")
+        existing = await self.session.execute(text("""
+            SELECT EXISTS (SELECT 1 FROM facialrecognition.user_face WHERE id_apprentice = :id)
+            """), {"id": apprentice_id})
+        if not existing.scalar_one():
+            return
+        if not replace_existing or reset_token is None:
+            raise ValueError("El reemplazo facial requiere aprobación vigente del coordinador.")
+        consumed = await self.session.execute(text("""
+            UPDATE facialrecognition.face_reset_request
+            SET consumed_at = clock_timestamp(), updated_at = clock_timestamp(), updated_by = CAST(:user_id AS text)
+            WHERE id_user_app = :user_id AND authorization_token = :token
+              AND request_status = 'ACCEPTED' AND consumed_at IS NULL
+              AND authorization_expires_at > clock_timestamp() AND deleted_at IS NULL
+            RETURNING id_face_reset_request
+            """), {"user_id": user_id, "token": reset_token})
+        if consumed.scalar_one_or_none() is None:
+            raise ValueError("La autorización facial no existe, expiró o ya fue utilizada.")
+
     async def resolve_apprentice_id(self, user_id: UUID) -> UUID | None:
         result = await self.session.execute(
             text(
