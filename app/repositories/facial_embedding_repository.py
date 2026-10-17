@@ -42,6 +42,48 @@ class FacialEmbeddingRepository:
         if consumed.scalar_one_or_none() is None:
             raise ValueError("La autorización facial no existe, expiró o ya fue utilizada.")
 
+    async def find_duplicate_embedding(
+        self,
+        *,
+        apprentice_id: UUID,
+        embedding: list[float],
+        threshold: float,
+    ) -> dict[str, Any] | None:
+        """Return another active apprentice whose face is too similar.
+
+        The advisory transaction lock makes the check-and-insert sequence
+        serial for registrations, preventing two concurrent registrations
+        from bypassing the uniqueness rule.
+        """
+        await self.session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext('facialrecognition.user_face.registration'))")
+        )
+        result = await self.session.execute(
+            text(
+                """
+                SELECT
+                    uf.id_apprentice,
+                    1 - (uf.embedding <=> CAST(:embedding AS vector)) AS similarity
+                FROM facialrecognition.user_face uf
+                WHERE uf.id_apprentice <> :apprentice_id
+                  AND uf.status = 'ACTIVE'
+                  AND uf.deleted_at IS NULL
+                  AND COALESCE(uf.embedding_dimension, vector_dims(uf.embedding)) = :embedding_dimension
+                  AND 1 - (uf.embedding <=> CAST(:embedding AS vector)) >= :threshold
+                ORDER BY similarity DESC
+                LIMIT 1
+                """
+            ),
+            {
+                "apprentice_id": apprentice_id,
+                "embedding": vector_literal(embedding),
+                "embedding_dimension": len(embedding),
+                "threshold": threshold,
+            },
+        )
+        row = result.mappings().one_or_none()
+        return dict(row) if row else None
+
     async def resolve_apprentice_id(self, user_id: UUID) -> UUID | None:
         result = await self.session.execute(
             text(

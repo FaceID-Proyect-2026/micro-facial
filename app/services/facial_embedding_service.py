@@ -22,6 +22,15 @@ from app.workers.face_embedding_worker import FaceEmbeddingWorker, get_face_embe
 logger = logging.getLogger("facelit.embedding")
 
 
+class DuplicateFaceError(ValueError):
+    """Raised when a face is already enrolled in another apprentice account."""
+
+    message = "este rostro ya fue registrado anteriormente en otra cuenta"
+
+    def __init__(self) -> None:
+        super().__init__(self.message)
+
+
 class FacialEmbeddingService:
     def __init__(
         self,
@@ -388,6 +397,19 @@ class FacialEmbeddingService:
         apprentice_id = await self._resolve_apprentice_id(payload.user_id)
 
         try:
+            duplicate = await self.repository.find_duplicate_embedding(
+                apprentice_id=apprentice_id,
+                embedding=payload.embedding,
+                threshold=settings.facial_match_threshold,
+            )
+            if duplicate is not None:
+                logger.warning(
+                    "facial registration rejected: duplicate face apprentice=%s existing_apprentice=%s similarity=%.4f",
+                    apprentice_id,
+                    duplicate["id_apprentice"],
+                    float(duplicate["similarity"]),
+                )
+                raise DuplicateFaceError()
             await self.repository.authorize_registration(apprentice_id, payload.replace_existing, payload.reset_token)
             row = await self.repository.upsert(
                 user_id=apprentice_id,
