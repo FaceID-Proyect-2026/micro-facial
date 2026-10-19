@@ -15,7 +15,7 @@ from app.schemas.facial_embedding import (
     FacialVerificationRequest,
     FacialVerificationResponse,
 )
-from app.services.facial_embedding_service import FacialEmbeddingService
+from app.services.facial_embedding_service import DuplicateFaceError, FacialEmbeddingService
 
 router = APIRouter(dependencies=[ApiKeyGuard])
 
@@ -33,6 +33,8 @@ async def register_facial_embedding(
     service = FacialEmbeddingService(session)
     try:
         return await service.register(payload)
+    except DuplicateFaceError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except LookupError as exc:
@@ -52,6 +54,8 @@ async def register_facial_embedding_from_image(
     service = FacialEmbeddingService(session)
     try:
         return await service.register_from_image(payload)
+    except DuplicateFaceError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except LookupError as exc:

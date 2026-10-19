@@ -60,6 +60,7 @@ def test_failed_embedding_write_rolls_back_authorization_consumption():
     service = FacialEmbeddingService(session, embedding_worker=MagicMock())
     service.repository = AsyncMock()
     service.repository.resolve_apprentice_id.return_value = uuid4()
+    service.repository.find_duplicate_embedding.return_value = None
     service.repository.upsert.side_effect = RuntimeError("storage unavailable")
     payload = FacialEmbeddingCreate(user_id=uuid4(), embedding=[0.1] * 128, replace_existing=True, reset_token=uuid4())
     with pytest.raises(RuntimeError, match="storage unavailable"):
@@ -75,6 +76,7 @@ def test_successful_replacement_writes_new_embedding_and_commits_once():
     service.repository = AsyncMock()
     apprentice = uuid4()
     service.repository.resolve_apprentice_id.return_value = apprentice
+    service.repository.find_duplicate_embedding.return_value = None
     service.repository.upsert.return_value = {
         "id": uuid4(), "user_id": apprentice, "embedding": [0.2] * 128,
         "embedding_dimension": 128, "model_name": "test", "photo_reference": None,
@@ -86,6 +88,27 @@ def test_successful_replacement_writes_new_embedding_and_commits_once():
     assert service.repository.upsert.call_args.kwargs["embedding"] == [0.2] * 128
     session.commit.assert_awaited_once()
     session.rollback.assert_not_awaited()
+
+
+def test_duplicate_face_is_rejected_before_authorization_or_write():
+    session = AsyncMock()
+    service = FacialEmbeddingService(session, embedding_worker=MagicMock())
+    service.repository = AsyncMock()
+    apprentice = uuid4()
+    service.repository.resolve_apprentice_id.return_value = apprentice
+    service.repository.find_duplicate_embedding.return_value = {
+        "id_apprentice": uuid4(),
+        "similarity": 0.91,
+    }
+    payload = FacialEmbeddingCreate(user_id=uuid4(), embedding=[0.2] * 128)
+
+    with pytest.raises(ValueError, match="este rostro ya fue registrado anteriormente en otra cuenta"):
+        asyncio.run(service._register_embedding(payload))
+
+    service.repository.authorize_registration.assert_not_awaited()
+    service.repository.upsert.assert_not_awaited()
+    session.commit.assert_not_awaited()
+    session.rollback.assert_awaited_once()
 
 
 def test_approved_reregistration_still_requires_live_capture():
