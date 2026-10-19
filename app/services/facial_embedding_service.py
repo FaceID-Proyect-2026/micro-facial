@@ -330,6 +330,35 @@ class FacialEmbeddingService:
                     "El reto era pestañear.",
                 )
             return self._metric_delta(frames, "eye_dark_ratio") > 0.018, "El reto era pestañear."
+        if normalized == "WINK":
+            if not self._has_mesh_metrics(frames):
+                return False, "El reto era guiñar un ojo."
+            left_delta = self._metric_drop(frames, "mesh_left_eye_ear")
+            right_delta = self._metric_drop(frames, "mesh_right_eye_ear")
+            return (
+                (left_delta > 0.085 and right_delta < 0.035) or
+                (right_delta > 0.085 and left_delta < 0.035),
+                "El reto era guiñar un ojo.",
+            )
+        if normalized == "RAISE_ONE_EYEBROW":
+            if not self._has_mesh_metrics(frames):
+                return False, "El reto era levantar una ceja."
+            left_delta = self._metric_rise(frames, "mesh_left_brow_gap")
+            right_delta = self._metric_rise(frames, "mesh_right_brow_gap")
+            return max(left_delta, right_delta) > 0.055 and min(left_delta, right_delta) < 0.035, "El reto era levantar una ceja."
+        if normalized == "RAISE_BOTH_EYEBROWS":
+            if not self._has_mesh_metrics(frames):
+                return False, "El reto era levantar las dos cejas."
+            left_delta = self._metric_rise(frames, "mesh_left_brow_gap")
+            right_delta = self._metric_rise(frames, "mesh_right_brow_gap")
+            return min(left_delta, right_delta) > 0.050, "El reto era levantar las dos cejas."
+        if normalized == "SMILE_WITH_TEETH":
+            if not self._has_mesh_metrics(frames):
+                return False, "El reto era sonreír mostrando los dientes."
+            white_max = self._metric_max(frames, "mesh_mouth_white_ratio")
+            white_rise = self._metric_rise(frames, "mesh_mouth_white_ratio")
+            mouth_rise = self._metric_rise(frames, "mesh_mouth_open_ratio")
+            return white_max > 0.080 and white_rise > 0.045 and mouth_rise > 0.025, "El reto era sonreír mostrando los dientes."
         if normalized == "OPEN_CLOSE_MOUTH":
             if self._has_mesh_metrics(frames):
                 mouth_delta = self._metric_delta(frames, "mesh_mouth_open_ratio")
@@ -342,13 +371,13 @@ class FacialEmbeddingService:
         if normalized == "STICK_TONGUE":
             if self._has_mesh_metrics(frames):
                 red_max = self._metric_max(frames, "mesh_mouth_red_ratio")
-                red_delta = self._metric_delta(frames, "mesh_mouth_red_ratio")
+                red_delta = self._metric_rise(frames, "mesh_mouth_red_ratio")
                 mouth_max = self._metric_max(frames, "mesh_mouth_open_ratio")
                 return (
-                    (red_max > 0.060 and mouth_max > 0.075) or red_delta > 0.030,
+                    red_max > 0.090 and red_delta > 0.045 and mouth_max > 0.10,
                     "El reto era sacar la lengua.",
                 )
-            return self._metric_max(frames, "mouth_red_ratio") > 0.018, "El reto era sacar la lengua."
+            return self._metric_delta(frames, "mouth_red_ratio") > 0.045, "El reto era sacar la lengua."
 
         first = frames[0]
         last = frames[-1]
@@ -362,13 +391,24 @@ class FacialEmbeddingService:
         diagonal = math.hypot(first_width, first_height)
         first_center_x = (first.bbox[0] + first.bbox[2]) / 2
         last_center_x = (last.bbox[0] + last.bbox[2]) / 2
+        first_center_y = (first.bbox[1] + first.bbox[3]) / 2
+        last_center_y = (last.bbox[1] + last.bbox[3]) / 2
         x_delta = (last_center_x - first_center_x) / diagonal
+        y_delta = (last_center_y - first_center_y) / diagonal
         area_delta = ((last_width * last_height) - (first_width * first_height)) / max(first_width * first_height, 1.0)
 
         if normalized == "MOVE_LEFT":
-            return x_delta < -0.006 or x_delta > 0.006, "El reto era mover el rostro hacia la izquierda."
+            return x_delta < -0.006, "El reto era mover el rostro hacia la izquierda."
         if normalized == "MOVE_RIGHT":
-            return x_delta > 0.006 or x_delta < -0.006, "El reto era mover el rostro hacia la derecha."
+            return x_delta > 0.006, "El reto era mover el rostro hacia la derecha."
+        if normalized == "MOVE_UP":
+            if self._has_mesh_metrics(frames):
+                return self._metric_drop(frames, "mesh_nose_y") > 0.045, "El reto era girar el rostro hacia arriba."
+            return y_delta < 0.025, "El reto era girar el rostro hacia arriba."
+        if normalized == "MOVE_DOWN":
+            if self._has_mesh_metrics(frames):
+                return self._metric_rise(frames, "mesh_nose_y") > 0.045, "El reto era girar el rostro hacia abajo."
+            return y_delta > 0.025, "El reto era girar el rostro hacia abajo."
         if normalized == "MOVE_CLOSER":
             return area_delta > 0.015, "El reto era acercarse un poco a la camara."
         if normalized == "MOVE_AWAY":
@@ -382,6 +422,14 @@ class FacialEmbeddingService:
     def _metric_delta(self, frames, key: str) -> float:
         values = self._metric_values(frames, key)
         return max(values, default=0.0) - min(values, default=0.0)
+
+    def _metric_rise(self, frames, key: str) -> float:
+        values = self._metric_values(frames, key)
+        return max(values, default=0.0) - (values[0] if values else 0.0)
+
+    def _metric_drop(self, frames, key: str) -> float:
+        values = self._metric_values(frames, key)
+        return (values[0] if values else 0.0) - min(values, default=0.0)
 
     def _metric_max(self, frames, key: str) -> float:
         return max(self._metric_values(frames, key), default=0.0)

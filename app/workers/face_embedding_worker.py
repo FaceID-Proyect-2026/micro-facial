@@ -190,9 +190,15 @@ def face_mesh_metrics(image: Any) -> dict[str, float]:
     right_eye_ear = eye_aspect_ratio((362, 385, 387, 263, 373, 380))
     mouth_width = max(distance(61, 291), 1.0)
     mouth_open_ratio = distance(13, 14) / mouth_width
+    face_height = max(distance(10, 152), 1.0)
+    face_width = max(distance(234, 454), 1.0)
+    left_brow_gap = ((point(105)[1] + point(66)[1]) / 2 - (point(159)[1] + point(145)[1]) / 2) / face_height
+    right_brow_gap = ((point(334)[1] + point(296)[1]) / 2 - (point(386)[1] + point(374)[1]) / 2) / face_height
     nose_x = landmarks[1].x
-    face_width_ratio = distance(234, 454) / max(float(width), 1.0)
+    nose_y = (point(1)[1] - point(10)[1]) / face_height
+    face_width_ratio = face_width / max(float(width), 1.0)
     mouth_red_ratio = mesh_mouth_red_ratio(image, landmarks)
+    mouth_white_ratio = mesh_mouth_white_ratio(image, landmarks)
 
     return {
         "mesh_available": 1.0,
@@ -201,7 +207,11 @@ def face_mesh_metrics(image: Any) -> dict[str, float]:
         "mesh_right_eye_ear": float(right_eye_ear),
         "mesh_mouth_open_ratio": float(mouth_open_ratio),
         "mesh_mouth_red_ratio": float(mouth_red_ratio),
+        "mesh_mouth_white_ratio": float(mouth_white_ratio),
+        "mesh_left_brow_gap": float(left_brow_gap),
+        "mesh_right_brow_gap": float(right_brow_gap),
         "mesh_nose_x": float(nose_x),
+        "mesh_nose_y": float(nose_y),
         "mesh_face_width_ratio": float(face_width_ratio),
     }
 
@@ -236,6 +246,30 @@ def mesh_mouth_red_ratio(image: Any, landmarks: Any) -> float:
     value = hsv[:, :, 2]
     red_or_pink = ((hue < 16) | (hue > 160)) & (saturation > 45) & (value > 55)
     return float(np.mean(red_or_pink))
+
+
+def mesh_mouth_white_ratio(image: Any, landmarks: Any) -> float:
+    """Estimate visible teeth using bright, low-saturation pixels in the mouth ROI."""
+    try:
+        import cv2
+        import numpy as np
+    except ImportError:
+        return 0.0
+
+    height, width = image.shape[:2]
+    xs = [landmarks[index].x * width for index in (61, 291, 13, 14)]
+    ys = [landmarks[index].y * height for index in (61, 291, 13, 14)]
+    padding_x = max(4, int((max(xs) - min(xs)) * 0.18))
+    padding_y = max(4, int((max(ys) - min(ys)) * 0.35))
+    x1 = max(0, int(min(xs)) - padding_x)
+    y1 = max(0, int(min(ys)) - padding_y)
+    x2 = min(width, int(max(xs)) + padding_x)
+    y2 = min(height, int(max(ys)) + padding_y)
+    if x2 <= x1 or y2 <= y1:
+        return 0.0
+    hsv = cv2.cvtColor(image[y1:y2, x1:x2], cv2.COLOR_BGR2HSV)
+    white = (hsv[:, :, 1] < 85) & (hsv[:, :, 2] > 145)
+    return float(np.mean(white))
 
 
 @lru_cache
