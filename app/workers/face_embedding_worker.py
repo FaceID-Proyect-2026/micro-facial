@@ -206,6 +206,7 @@ def face_mesh_metrics(image: Any) -> dict[str, float]:
         "mesh_left_eye_ear": float(left_eye_ear),
         "mesh_right_eye_ear": float(right_eye_ear),
         "mesh_mouth_open_ratio": float(mouth_open_ratio),
+        "mesh_mouth_width_ratio": float(mouth_width / face_width),
         "mesh_mouth_red_ratio": float(mouth_red_ratio),
         "mesh_mouth_white_ratio": float(mouth_white_ratio),
         "mesh_left_brow_gap": float(left_brow_gap),

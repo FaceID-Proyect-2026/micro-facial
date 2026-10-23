@@ -330,6 +330,14 @@ class FacialEmbeddingService:
                     "El reto era pestañear.",
                 )
             return self._metric_delta(frames, "eye_dark_ratio") > 0.018, "El reto era pestañear."
+        if normalized == "NOD":
+            if not self._has_mesh_metrics(frames):
+                return False, "El reto era asentir con la cabeza."
+            return self._metric_delta(frames, "mesh_nose_y") > 0.045, "El reto era asentir con la cabeza."
+        if normalized == "SHAKE_HEAD":
+            if not self._has_mesh_metrics(frames):
+                return False, "El reto era negar con la cabeza."
+            return self._metric_delta(frames, "mesh_nose_x") > 0.045, "El reto era negar con la cabeza."
         if normalized == "OPEN_CLOSE_MOUTH":
             if self._has_mesh_metrics(frames):
                 mouth_delta = self._metric_delta(frames, "mesh_mouth_open_ratio")
@@ -339,6 +347,12 @@ class FacialEmbeddingService:
                     "El reto era abrir y cerrar la boca.",
                 )
             return self._metric_delta(frames, "mouth_dark_ratio") > 0.030, "El reto era abrir y cerrar la boca."
+        if normalized == "KISS_CAMERA":
+            if not self._has_mesh_metrics(frames):
+                return False, "El reto era dar un beso a la cámara."
+            width_delta = self._metric_drop(frames, "mesh_mouth_width_ratio")
+            mouth_open = self._metric_max(frames, "mesh_mouth_open_ratio")
+            return width_delta > 0.018 and mouth_open < 0.45, "El reto era dar un beso a la cámara."
         first = frames[0]
         last = frames[-1]
         if len(first.bbox) != 4 or len(last.bbox) != 4:
