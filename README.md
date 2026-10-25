@@ -1,5 +1,8 @@
 # FaceLit Embedding Service
 
+HU-05 / HU-MEJ-005: responsable **Mariana Valenzuela Penagos**; rama de entrega
+`hu-03-dev`. Hallazgos H-03, H-15 y H-48; punto 4 del plan de cierre.
+
 Microservicio FastAPI para registrar y consultar embeddings faciales de aprendices durante el registro facial.
 
 ## Requisitos
