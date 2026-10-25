@@ -39,4 +39,18 @@ Tras publicar y ejecutar el PR, exigir el check Python unit tests and coverage e
 
 Esta prueba usa dependencias de una imagen existente y no sustituye una instalación limpia en GitHub Actions. El job de CI instala todas las dependencias desde requirements-ci.txt.
 
-La configuración se entrega para publicación en hu-02-dev y revisión mediante PR hacia dev. La ejecución verde en GitHub Actions y la revisión independiente quedan pendientes de verificar. No declarar la HU Done sin esas evidencias.
+## Actualización de evidencia y alcance — 25 de octubre de 2026
+
+Rama de esta entrega: `hu-02-dev`, PR [#4 hacia dev](https://github.com/FaceID-Proyect-2026/micro-facial/pull/4). El SHA base `9e60c34f70875b9bff470d5313b4a90609804ab0` ya tiene una [ejecución real verde](https://github.com/FaceID-Proyect-2026/micro-facial/actions/runs/40195796057). Al publicar esta actualización documental debe comprobarse el CI del nuevo head del PR.
+
+Se repitieron dependencias CI, pip check, Ruff E9/F63/F7/F82, compileall y pytest con Python 3.11.17 sobre una copia del código versionado. Resultado habitual: **27 aprobadas, 1 omitida, 4 advertencias de deprecación, salida 0**, cobertura **48,33 % de líneas (406/840)**.
+
+Además se ejecutó aparte `RF54_POSTGRES_TEST=1 python -m pytest tests/test_face_reset_postgres.py` contra PostgreSQL temporal: **1 aprobada, 0 omitidas**. Se verificaron registro/reemplazo, consumo de autorización, rechazo de reutilización/expiración y rollback con vectores sintéticos. Entre ambas invocaciones se ejercitaron los 28 casos. La cobertura anterior corresponde solo a la suite habitual; no se sumó la ejecución adicional ni se afirma que el workflow actual ejecute el opt-in.
+
+La base temporal se eliminó sin tocar desarrollo. Se usó una imagen local con dependencias nativas existentes; no es evidencia de una construcción desde cero. Logs, XML e informes HTML están fuera del repositorio en `ci-evidence/hu006-validation-20261025/` del directorio de trabajo. No se validó biometría real.
+
+La delimitación solicitada asigna HU-MEJ-006 a **H-16/H-18: automatización, cobertura y evidencia**. Implementar reglas de seguridad H-17 corresponde a HU-MEJ-001/HU-MEJ-002; CI debe ejecutar sus pruebas cuando se integren. La propuesta inicial citaba H-17 y esta aclaración conserva su trazabilidad.
+
+Se configuró como obligatorio `Python unit tests and coverage` en el ruleset CI activo de dev/qa/main, con una aprobación y sin bypass. La responsable informa haber probado el bloqueo con CI rojo: falta adjuntar y contrastar su evidencia, junto con las aprobaciones independientes del PR. La cobertura menor al 100 % identifica código no recorrido, no un fallo por sí misma ni una garantía sobre partes sin probar. No se cambiaron fuentes ni workflow en esta actualización documental. No declarar Done antes de evidencia y aprobación.
+
+Documento de entrega compartido: [alcance, inventario y resultados de HU-MEJ-006](https://github.com/FaceID-Proyect-2026/FaceLit/blob/hu-38-dev/docs/HU-MEJ-006-ALCANCE-Y-ENTREGA-QA.md).
