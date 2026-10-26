@@ -466,24 +466,17 @@ class FacialEmbeddingService:
             raise ValueError("El embedding no puede ser nulo.")
         if "image_base64" in payload.model_fields_set and payload.image_base64 is None:
             raise ValueError("La imagen no puede ser nula.")
-        if payload.embedding is not None and payload.image_base64 is not None:
-            raise ValueError("Envia embedding o image_base64, no ambos.")
         if "model_name" in payload.model_fields_set and payload.model_name is None:
             raise ValueError("model_name no puede ser nulo.")
 
         apprentice_id = await self._resolve_apprentice_id(user_id)
 
-        embedding = payload.embedding if "embedding" in payload.model_fields_set else None
         model_name = payload.model_name if "model_name" in payload.model_fields_set else None
-        if payload.image_base64 is not None:
-            generated = self.embedding_worker.generate(payload.image_base64)
-            embedding = generated.embedding
-            model_name = model_name or generated.model_name
 
         try:
             row = await self.repository.update_active(
                 user_id=apprentice_id,
-                embedding=embedding,
+                embedding=None,
                 model_name=model_name,
                 photo_reference=payload.photo_reference,
                 update_photo_reference="photo_reference" in payload.model_fields_set,
