@@ -1,5 +1,8 @@
 # FaceLit Embedding Service
 
+HU-05 / HU-MEJ-005: responsable **Mariana Valenzuela Penagos**; rama de entrega
+`hu-03-dev`. Hallazgos H-03, H-15 y H-48; punto 4 del plan de cierre.
+
 Microservicio FastAPI para registrar y consultar embeddings faciales de aprendices durante el registro facial.
 
 ## Requisitos
@@ -14,7 +17,7 @@ Copia `.env.example` a `.env` y ajusta las variables:
 
 ```env
 DATABASE_URL=postgresql+asyncpg://facelit_user:facelit_password@localhost:5439/facelit-db
-API_KEY=change-me
+API_KEY=
 ```
 
 ## Ejecutar
@@ -43,7 +46,17 @@ OpenAPI queda disponible en:
 - `DELETE /api/v1/facial-embeddings/users/{user_id}` desactiva el embedding activo. `user_id` puede ser `academic.apprentice.id_apprentice` o `academic.apprentice.id_user_app`.
 - `GET /health` verifica el estado del servicio.
 
-Incluye `X-API-Key` en las peticiones cuando `API_KEY` tenga valor.
+Incluye siempre `X-API-Key` en las peticiones internas. El servicio rechaza credenciales ausentes y falla al arrancar con API_KEY vacía. El frontend solo llama al backend autenticado.
+
+Configura un secreto aleatorio de al menos 32 bytes en `API_KEY` y el mismo valor en
+`FACIAL_EMBEDDING_API_KEY` del backend. No lo compartas con Expo ni lo agregues a Git.
+Los valores vacíos de los ejemplos son intencionales: debes completarlos antes de arrancar.
+Las respuestas de registro, consulta y actualización contienen metadatos, nunca el vector.
+
+Docker publica el puerto únicamente en `127.0.0.1` para el backend ejecutado en el mismo
+equipo. Si el backend corre en otro contenedor, usa la red privada compartida y configura
+`FACIAL_EMBEDDING_URL=http://embedding-service:8090`; elimina la publicación del puerto
+en ese despliegue. No abras el puerto biométrico a clientes móviles ni a Internet.
 
 ## Generar embedding desde imagen
 
@@ -138,7 +151,7 @@ ese error viene del subproceso de recarga de Uvicorn, no del servicio.
 ```
 APP_NAME=FaceLit Embedding Service
 ENVIRONMENT=local
-API_KEY=change-me
+API_KEY=
 DATABASE_URL=postgresql+asyncpg://facelit_user:facelit_password@localhost:5439/facelit-db
 CORS_ORIGINS=["http://localhost:8081","http://localhost:19006","http://localhost:3000"]
 MIN_EMBEDDING_DIMENSION=32
@@ -154,7 +167,7 @@ docker compose up -d --build
 ```
 APP_NAME=FaceLit Embedding Service
 ENVIRONMENT=local
-API_KEY=change-me
+API_KEY=
 DATABASE_URL=postgresql+asyncpg://facelit_user:facelit_password@postgres:5432/facelit-db
 CORS_ORIGINS=["http://localhost:8081","http://localhost:19006","http://localhost:3000"]
 MIN_EMBEDDING_DIMENSION=32

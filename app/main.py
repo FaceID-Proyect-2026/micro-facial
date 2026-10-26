@@ -54,6 +54,8 @@ def create_app() -> FastAPI:
 
     @app.on_event("startup")
     async def warm_up_model() -> None:
+        if not settings.api_key.strip():
+            raise RuntimeError("API_KEY debe configurarse con un secreto de servicio no vacío.")
         if not settings.preload_model:
             logger.info("InsightFace startup warm-up disabled")
             return

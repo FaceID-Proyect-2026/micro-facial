@@ -1,3 +1,5 @@
+from secrets import compare_digest
+
 from fastapi import Depends, HTTPException, Security, status
 from fastapi.security import APIKeyHeader
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,7 +11,8 @@ api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
 async def require_api_key(api_key: str | None = Security(api_key_header)) -> None:
-    if settings.api_key and api_key != settings.api_key:
+    if (not settings.api_key.strip() or not api_key
+            or not compare_digest(api_key.encode("utf-8"), settings.api_key.encode("utf-8"))):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="API key invalida o ausente.",
