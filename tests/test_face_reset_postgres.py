@@ -49,6 +49,13 @@ async def exercise():
             await session.execute(text(f'INSERT INTO "{schema}".apprentice VALUES (:id, :owner, NULL)'), {"id": apprentice, "owner": owner})
             await repo.authorize_registration(apprentice, False, None)
             original = await repo.upsert(user_id=apprentice, embedding=[0.1] * 128, model_name="test", photo_reference=None, created_by=str(owner))
+            # The current enrollment must not match itself, but the same face cannot
+            # be enrolled under a different account. The actual pgvector query is used.
+            assert await repo.find_duplicate_embedding(apprentice_id=apprentice, embedding=[0.1] * 128, threshold=0.65) is None
+            duplicate = await repo.find_duplicate_embedding(apprentice_id=uuid4(), embedding=[0.1] * 128, threshold=0.65)
+            assert duplicate['id_apprentice'] == apprentice
+            assert float(duplicate['similarity']) >= 0.65
+            assert await session.scalar(text(f'SELECT COUNT(*) FROM "{schema}".user_face')) == 1
             with pytest.raises(ValueError, match="aprobación"):
                 await repo.authorize_registration(apprentice, True, None)
             await session.execute(text(f"""INSERT INTO "{schema}".face_reset_request

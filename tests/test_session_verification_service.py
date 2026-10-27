@@ -27,6 +27,9 @@ class FakeWorker:
             ],
             bbox=[0, 0, 100, 100],
             image_metrics={
+                "mesh_available": 1.0,
+                "mesh_eye_ear": [0.30, 0.28, 0.12, 0.28, 0.30][(self.calls - 1) % 5] if self.calls <= 5 else 0.30,
+                "mesh_mouth_open_ratio": [0.02, 0.08, 0.25, 0.08, 0.02][(self.calls - 1) % 5] if self.calls > 5 else 0.02,
                 "eye_dark_ratio": 0.05 + (0.03 if self.calls == 2 else 0.0),
                 "mouth_dark_ratio": 0.04 + (0.05 if self.calls == 3 else 0.0),
                 "mouth_red_ratio": 0.01 + (0.02 if self.calls == 3 else 0.0),
@@ -56,7 +59,8 @@ async def test_session_verification_returns_match_when_similarity_reaches_thresh
     result = await service.verify_session_face(
         FacialVerificationRequest(
             record_environment_id=record_environment_id,
-            image_frames=["data:image/jpeg;base64,abc"] * 3,
+            image_frames=["data:image/jpeg;base64,abc"] * 10,
+            liveness_challenges=["BLINK", "OPEN_CLOSE_MOUTH"],
             threshold=0.65,
         )
     )
@@ -76,7 +80,8 @@ async def test_session_verification_rejects_below_threshold():
     result = await service.verify_session_face(
         FacialVerificationRequest(
             record_environment_id=uuid4(),
-            image_frames=["data:image/jpeg;base64,abc"] * 3,
+            image_frames=["data:image/jpeg;base64,abc"] * 10,
+            liveness_challenges=["BLINK", "OPEN_CLOSE_MOUTH"],
             threshold=0.65,
         )
     )
@@ -94,7 +99,8 @@ async def test_session_verification_rejects_without_active_candidates():
     result = await service.verify_session_face(
         FacialVerificationRequest(
             record_environment_id=uuid4(),
-            image_frames=["data:image/jpeg;base64,abc"] * 3,
+            image_frames=["data:image/jpeg;base64,abc"] * 10,
+            liveness_challenges=["BLINK", "OPEN_CLOSE_MOUTH"],
             threshold=0.65,
         )
     )

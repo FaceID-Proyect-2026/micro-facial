@@ -32,6 +32,7 @@ class DuplicateFaceError(ValueError):
 
 
 class FacialEmbeddingService:
+    REQUIRED_LIVENESS_CHALLENGES = 2
     def __init__(
         self,
         session: AsyncSession,
@@ -47,11 +48,6 @@ class FacialEmbeddingService:
         return await self._register_embedding(payload)
 
     async def register_from_image(self, payload: FacialEmbeddingFromImageCreate) -> FacialEmbeddingResponse:
-        if payload.reset_token is not None and (
-            len(payload.image_frames) < settings.liveness_min_frames * 3
-            or len(self._resolve_liveness_challenges(payload.liveness_challenges, payload.liveness_challenge)) != 3
-        ):
-            raise ValueError("El re-registro requiere tres retos de vida completos capturados en cámara.")
         generated = self._generate_registration_embedding(payload)
         embedding_payload = FacialEmbeddingCreate(
             user_id=payload.user_id,
@@ -67,10 +63,8 @@ class FacialEmbeddingService:
     def _generate_registration_embedding(self, payload: FacialEmbeddingFromImageCreate):
         frames = payload.image_frames[: settings.liveness_max_frames]
         challenges = self._resolve_liveness_challenges(payload.liveness_challenges, payload.liveness_challenge)
-        if not frames:
-            return self.embedding_worker.generate(payload.image_base64)
-        if len(frames) < settings.liveness_min_frames:
-            raise ValueError("Se requiere una secuencia de frames capturada en vivo.")
+        if len(frames) < settings.liveness_min_frames * self.REQUIRED_LIVENESS_CHALLENGES:
+            raise ValueError("El registro requiere dos retos de vida completos capturados en cámara.")
 
         generated_frames = [self.embedding_worker.generate(frame) for frame in frames]
         live, liveness_reason = self._validate_liveness_sequence(generated_frames, challenges)
@@ -193,15 +187,14 @@ class FacialEmbeddingService:
         return FacialLivenessCheckResponse(live=live, reason=reason)
 
     def _validate_liveness_sequence(self, frames, challenges: list[str]) -> tuple[bool, str]:
-        if not challenges:
-            return self._validate_liveness(frames)
-
-        if len(challenges) == 1:
-            return self._validate_liveness(frames, challenges[0])
+        if len(challenges) != self.REQUIRED_LIVENESS_CHALLENGES or len(set(challenges)) != self.REQUIRED_LIVENESS_CHALLENGES:
+            return False, "Se requieren dos retos de vida diferentes y completos."
 
         required_frames = settings.liveness_min_frames * len(challenges)
         if len(frames) < required_frames:
             return False, f"La secuencia requiere {len(challenges)} retos completos."
+        if len(frames) % len(challenges):
+            return False, "Cada reto debe contener el mismo número de frames."
 
         reference = frames[0]
         if any(self._cosine_similarity(reference.embedding, frame.embedding) < settings.liveness_min_embedding_similarity for frame in frames[1:]):
@@ -224,6 +217,8 @@ class FacialEmbeddingService:
         return True, "LIVE_OK_SEQUENCE"
 
     def _validate_liveness(self, frames, challenge: str | None = None) -> tuple[bool, str]:
+        if len(frames) < settings.liveness_min_frames:
+            return False, "Se requieren suficientes frames para validar el reto."
         if any(not frame.landmarks or len(frame.landmarks) < 2 for frame in frames):
             return False, "No fue posible medir puntos faciales en toda la secuencia."
 
@@ -265,9 +260,9 @@ class FacialEmbeddingService:
     def _resolve_liveness_challenges(challenges: list[str] | None, challenge: str | None) -> list[str]:
         resolved = [item.strip().upper() for item in (challenges or []) if item and item.strip()]
         if resolved:
-            return resolved[:3]
+            return resolved
         if challenge and "," in challenge:
-            return [item.strip().upper() for item in challenge.split(",") if item.strip()][:3]
+            return [item.strip().upper() for item in challenge.split(",") if item.strip()]
         if challenge and challenge.strip():
             return [challenge.strip().upper()]
         return []
@@ -320,39 +315,41 @@ class FacialEmbeddingService:
     def _validate_challenge(self, frames, challenge: str | None) -> tuple[bool, str]:
         normalized = (challenge or "ANY_MOVEMENT").strip().upper()
         if normalized in {"", "ANY_MOVEMENT"}:
-            return True, "LIVE_OK"
+            return False, "Debes realizar un reto específico de vida."
         if normalized == "BLINK":
             if self._has_mesh_metrics(frames):
-                eye_delta = self._metric_delta(frames, "mesh_eye_ear")
                 eye_min = self._metric_min(frames, "mesh_eye_ear")
                 return (
-                    (eye_delta > 0.045 and eye_min < 0.23) or eye_delta > 0.075,
+                    self._metric_cycle(frames, "mesh_eye_ear", 0.045, -1) and eye_min < 0.23,
                     "El reto era pestañear.",
                 )
-            return self._metric_delta(frames, "eye_dark_ratio") > 0.018, "El reto era pestañear."
+            return False, "El reto era pestañear. No se pudieron medir los ojos; revisa la iluminación."
         if normalized == "NOD":
             if not self._has_mesh_metrics(frames):
                 return False, "El reto era asentir con la cabeza."
-            return self._metric_delta(frames, "mesh_nose_y") > 0.045, "El reto era asentir con la cabeza."
+            return self._metric_cycle(frames, "mesh_nose_y", 0.045), "El reto era asentir con la cabeza y volver al centro."
         if normalized == "SHAKE_HEAD":
             if not self._has_mesh_metrics(frames):
                 return False, "El reto era negar con la cabeza."
-            return self._metric_delta(frames, "mesh_nose_x") > 0.045, "El reto era negar con la cabeza."
+            return self._metric_cycle(frames, "mesh_nose_x", 0.045), "El reto era negar con la cabeza y volver al centro."
         if normalized == "OPEN_CLOSE_MOUTH":
             if self._has_mesh_metrics(frames):
-                mouth_delta = self._metric_delta(frames, "mesh_mouth_open_ratio")
                 mouth_max = self._metric_max(frames, "mesh_mouth_open_ratio")
                 return (
-                    mouth_delta > 0.055 and mouth_max > 0.10,
+                    self._metric_cycle(frames, "mesh_mouth_open_ratio", 0.055, 1) and mouth_max > 0.10,
                     "El reto era abrir y cerrar la boca.",
                 )
-            return self._metric_delta(frames, "mouth_dark_ratio") > 0.030, "El reto era abrir y cerrar la boca."
+            return False, "El reto era abrir y cerrar la boca. No se pudo medir la boca; revisa la iluminación."
         if normalized == "KISS_CAMERA":
             if not self._has_mesh_metrics(frames):
                 return False, "El reto era dar un beso a la cámara."
-            width_delta = self._metric_drop(frames, "mesh_mouth_width_ratio")
             mouth_open = self._metric_max(frames, "mesh_mouth_open_ratio")
-            return width_delta > 0.018 and mouth_open < 0.45, "El reto era dar un beso a la cámara."
+            return (
+                self._metric_cycle(frames, "mesh_mouth_width_ratio", 0.018, -1)
+                and mouth_open < 0.10
+                and self._metric_delta(frames, "mesh_mouth_white_ratio") < 0.05,
+                "El reto era dar un beso a la cámara, sin sonreír ni abrir la boca.",
+            )
         first = frames[0]
         last = frames[-1]
         if len(first.bbox) != 4 or len(last.bbox) != 4:
@@ -365,29 +362,39 @@ class FacialEmbeddingService:
         diagonal = math.hypot(first_width, first_height)
         first_center_x = (first.bbox[0] + first.bbox[2]) / 2
         last_center_x = (last.bbox[0] + last.bbox[2]) / 2
-        first_center_y = (first.bbox[1] + first.bbox[3]) / 2
-        last_center_y = (last.bbox[1] + last.bbox[3]) / 2
         x_delta = (last_center_x - first_center_x) / diagonal
-        y_delta = (last_center_y - first_center_y) / diagonal
         area_delta = ((last_width * last_height) - (first_width * first_height)) / max(first_width * first_height, 1.0)
 
         if normalized == "MOVE_LEFT":
-            return x_delta < -0.006, "El reto era mover el rostro hacia la izquierda."
+            return x_delta < -0.025, "El reto era mover el rostro hacia la izquierda."
         if normalized == "MOVE_RIGHT":
-            return x_delta > 0.006, "El reto era mover el rostro hacia la derecha."
+            return x_delta > 0.025, "El reto era mover el rostro hacia la derecha."
         if normalized == "MOVE_UP":
             if self._has_mesh_metrics(frames):
-                return self._metric_drop(frames, "mesh_nose_y") > 0.045, "El reto era girar el rostro hacia arriba."
-            return y_delta < 0.025, "El reto era girar el rostro hacia arriba."
+                values = self._metric_values(frames, "mesh_nose_y")
+                return values[0] - values[-1] > 0.045, "El reto era girar el rostro hacia arriba."
+            return False, "El reto era girar el rostro hacia arriba. No se pudo medir la orientación."
         if normalized == "MOVE_DOWN":
             if self._has_mesh_metrics(frames):
-                return self._metric_rise(frames, "mesh_nose_y") > 0.045, "El reto era girar el rostro hacia abajo."
-            return y_delta > 0.025, "El reto era girar el rostro hacia abajo."
+                values = self._metric_values(frames, "mesh_nose_y")
+                return values[-1] - values[0] > 0.045, "El reto era girar el rostro hacia abajo."
+            return False, "El reto era girar el rostro hacia abajo. No se pudo medir la orientación."
         if normalized == "MOVE_CLOSER":
             return area_delta > 0.015, "El reto era acercarse un poco a la camara."
         if normalized == "MOVE_AWAY":
             return area_delta < -0.015, "El reto era alejarse un poco de la camara."
-        return True, "LIVE_OK"
+        return False, "El reto solicitado no está soportado; inicia una nueva captura."
+
+    def _metric_cycle(self, frames, key: str, threshold: float, direction: int = 0) -> bool:
+        """Require neutral -> requested excursion -> neutral, not just any change."""
+        values = self._metric_values(frames, key)
+        if len(values) < 3:
+            return False
+        baseline = values[0]
+        excursions = [(value - baseline) * direction if direction else abs(value - baseline)
+                      for value in values[1:-1]]
+        peak = max(excursions, default=0.0)
+        return peak > threshold and abs(values[-1] - baseline) <= threshold / 2
 
     @staticmethod
     def _metric_values(frames, key: str) -> list[float]:
@@ -397,19 +404,11 @@ class FacialEmbeddingService:
         values = self._metric_values(frames, key)
         return max(values, default=0.0) - min(values, default=0.0)
 
-    def _metric_rise(self, frames, key: str) -> float:
-        values = self._metric_values(frames, key)
-        return max(values, default=0.0) - (values[0] if values else 0.0)
-
-    def _metric_drop(self, frames, key: str) -> float:
-        values = self._metric_values(frames, key)
-        return (values[0] if values else 0.0) - min(values, default=0.0)
-
     def _metric_max(self, frames, key: str) -> float:
         return max(self._metric_values(frames, key), default=0.0)
 
     def _metric_min(self, frames, key: str) -> float:
-        values = [value for value in self._metric_values(frames, key) if value > 0.0]
+        values = self._metric_values(frames, key)
         return min(values, default=0.0)
 
     def _has_mesh_metrics(self, frames) -> bool:

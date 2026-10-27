@@ -114,7 +114,7 @@ def test_duplicate_face_is_rejected_before_authorization_or_write():
 def test_approved_reregistration_still_requires_live_capture():
     service = FacialEmbeddingService(AsyncMock(), embedding_worker=MagicMock())
     payload = FacialEmbeddingFromImageCreate(user_id=uuid4(), image_base64="photo", reset_token=uuid4())
-    with pytest.raises(ValueError, match="tres retos"):
+    with pytest.raises(ValueError, match="dos retos"):
         asyncio.run(service.register_from_image(payload))
     service.embedding_worker.generate.assert_not_called()
 

@@ -194,7 +194,8 @@ def face_mesh_metrics(image: Any) -> dict[str, float]:
     face_width = max(distance(234, 454), 1.0)
     left_brow_gap = ((point(105)[1] + point(66)[1]) / 2 - (point(159)[1] + point(145)[1]) / 2) / face_height
     right_brow_gap = ((point(334)[1] + point(296)[1]) / 2 - (point(386)[1] + point(374)[1]) / 2) / face_height
-    nose_x = landmarks[1].x
+    # Relative to the face, so translating the whole head is not mistaken for rotation.
+    nose_x = (point(1)[0] - (point(234)[0] + point(454)[0]) / 2) / face_width
     nose_y = (point(1)[1] - point(10)[1]) / face_height
     face_width_ratio = face_width / max(float(width), 1.0)
     mouth_red_ratio = mesh_mouth_red_ratio(image, landmarks)
