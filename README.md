@@ -116,6 +116,19 @@ The opt-in PostgreSQL test requires `RF54_POSTGRES_TEST=1` and a prepared local 
 
 ## Release and documentation policy
 
+Only four liveness challenges are enabled: `MOVE_UP`, `MOVE_DOWN`, `MOVE_CLOSER`
+and `MOVE_AWAY`. Registration and attendance still require two distinct challenges.
+The frontend selects only these four, and the microservice rejects the seven retired
+codes even when an older client submits them directly. Their detection thresholds
+and capture timing are unchanged.
+
+`tests/test_all_liveness_contracts.py` covers complete signals, all twelve incorrect
+substitutions, all twelve distinct pairs, still faces, identity changes and invalid
+measurements. The authenticated HTTP integration checks the four active challenges
+and rejection of the seven retired codes. Synthetic inference verifies rules and
+transport; physical-camera acceptance remains a separate check. Never use the test
+integration entry point in production.
+
 Record the exact component commits, CI run and artifacts for a coordinated release. Verify private connectivity, credentials, model startup, authorized registration/reset and attendance with the deployed backend/frontend. Obtain independent review; do not reuse a green result from another commit as the final head's CI evidence.
 
 All maintained explanatory documentation is consolidated in this README. The previous CI narrative remains recoverable from Git history and the separate delivery archive. Python code, tests, workflow YAML, requirements, configuration examples, Docker inputs and source comments remain in their functional locations.

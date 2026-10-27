@@ -10,6 +10,7 @@ from app.api.dependencies import db_session, facial_service
 from app.main import create_app
 from app.services.facial_embedding_service import FacialEmbeddingService
 from app.workers.face_embedding_worker import GeneratedEmbedding
+from liveness_signals import CODES, frames_for
 
 
 class FixtureEmbeddingWorker:
@@ -17,20 +18,16 @@ class FixtureEmbeddingWorker:
         self.calls = 0
 
     def generate(self, image_base64: str) -> GeneratedEmbedding:
-        index = self.calls % 10
+        if image_base64.startswith("liveness-fixture:"):
+            _, code, index = image_base64.split(":")
+            if code != "STILL" and code not in CODES:
+                raise ValueError("Unsupported integration-fixture challenge")
+            return frames_for(code)[int(index)]
+        index = self.calls % 14
         self.calls += 1
-        return GeneratedEmbedding(
-            embedding=[0.1] * 128,
-            model_name="integration-fixture",
-            face_count=1,
-            landmarks=[[30, 30], [70, 30]],
-            bbox=[0, 0, 100, 100],
-            image_metrics={
-                "mesh_available": 1.0,
-                "mesh_eye_ear": [.30, .28, .12, .28, .30][index] if index < 5 else .30,
-                "mesh_mouth_open_ratio": [.02, .08, .25, .08, .02][index - 5] if index >= 5 else .02,
-            },
-        )
+        code = "MOVE_UP" if index < 7 else "MOVE_DOWN"
+        return frames_for(code)[index % 7]
+
 
 
 def fixture_service(session: AsyncSession = Depends(db_session)) -> FacialEmbeddingService:
