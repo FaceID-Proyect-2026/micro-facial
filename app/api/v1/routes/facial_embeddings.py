@@ -1,9 +1,8 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies import ApiKeyGuard, db_session
+from app.api.dependencies import ApiKeyGuard, facial_service
 from app.schemas.facial_embedding import (
     FacialEmbeddingCreate,
     FacialEmbeddingFromImageCreate,
@@ -28,9 +27,8 @@ router = APIRouter(dependencies=[ApiKeyGuard])
 )
 async def register_facial_embedding(
     payload: FacialEmbeddingCreate,
-    session: AsyncSession = Depends(db_session),
+    service: FacialEmbeddingService = Depends(facial_service),
 ) -> FacialEmbeddingResponse:
-    service = FacialEmbeddingService(session)
     try:
         return await service.register(payload)
     except DuplicateFaceError as exc:
@@ -49,9 +47,8 @@ async def register_facial_embedding(
 )
 async def register_facial_embedding_from_image(
     payload: FacialEmbeddingFromImageCreate,
-    session: AsyncSession = Depends(db_session),
+    service: FacialEmbeddingService = Depends(facial_service),
 ) -> FacialEmbeddingResponse:
-    service = FacialEmbeddingService(session)
     try:
         return await service.register_from_image(payload)
     except DuplicateFaceError as exc:
@@ -69,9 +66,8 @@ async def register_facial_embedding_from_image(
 )
 async def verify_session_face(
     payload: FacialVerificationRequest,
-    session: AsyncSession = Depends(db_session),
+    service: FacialEmbeddingService = Depends(facial_service),
 ) -> FacialVerificationResponse:
-    service = FacialEmbeddingService(session)
     try:
         return await service.verify_session_face(payload)
     except ValueError as exc:
@@ -85,9 +81,8 @@ async def verify_session_face(
 )
 async def check_liveness(
     payload: FacialLivenessCheckRequest,
-    session: AsyncSession = Depends(db_session),
+    service: FacialEmbeddingService = Depends(facial_service),
 ) -> FacialLivenessCheckResponse:
-    service = FacialEmbeddingService(session)
     try:
         return service.check_liveness(payload)
     except ValueError as exc:
@@ -101,9 +96,9 @@ async def check_liveness(
 )
 async def get_active_facial_embedding(
     user_id: UUID,
-    session: AsyncSession = Depends(db_session),
+    service: FacialEmbeddingService = Depends(facial_service),
 ) -> FacialEmbeddingResponse:
-    record = await FacialEmbeddingService(session).get_active_by_user(user_id)
+    record = await service.get_active_by_user(user_id)
     if record is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -120,9 +115,8 @@ async def get_active_facial_embedding(
 async def update_facial_embedding_partial(
     user_id: UUID,
     payload: FacialEmbeddingPartialUpdate,
-    session: AsyncSession = Depends(db_session),
+    service: FacialEmbeddingService = Depends(facial_service),
 ) -> FacialEmbeddingResponse:
-    service = FacialEmbeddingService(session)
     try:
         return await service.update_partial(user_id, payload)
     except ValueError as exc:
@@ -139,9 +133,9 @@ async def update_facial_embedding_partial(
 async def list_active_facial_embeddings(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
-    session: AsyncSession = Depends(db_session),
+    service: FacialEmbeddingService = Depends(facial_service),
 ) -> list[FacialEmbeddingSummary]:
-    return await FacialEmbeddingService(session).list_active(limit=limit, offset=offset)
+    return await service.list_active(limit=limit, offset=offset)
 
 
 @router.delete(
@@ -152,9 +146,9 @@ async def list_active_facial_embeddings(
 async def deactivate_facial_embedding(
     user_id: UUID,
     deleted_by: str = Query(default="embedding-service", max_length=100),
-    session: AsyncSession = Depends(db_session),
+    service: FacialEmbeddingService = Depends(facial_service),
 ) -> Response:
-    deleted = await FacialEmbeddingService(session).deactivate(user_id, deleted_by)
+    deleted = await service.deactivate(user_id, deleted_by)
     if not deleted:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

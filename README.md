@@ -4,6 +4,18 @@ FastAPI service for facial-template registration, liveness checks and attendance
 
 ## Architecture
 
+Three logical layers are kept: HTTP routes and schemas, application services/rules,
+and SQL/model adapters. `api/dependencies.py` composes request dependencies so routes
+do not instantiate persistence or inference implementations. `FacialEmbeddingService`
+remains the compatible application facade; `LivenessValidator` owns temporal rules,
+and small protocols describe the generator, policy and store it consumes.
+
+The backend HTTP integration and shared PostgreSQL schema are preserved. The fixture
+in `tests/support/e2e_app.py` uses the real routes, rules and database but substitutes
+image inference. It is exclusively for the sibling DB repository's isolated E2E
+runner and must never be used as the deployment entry point. Production still uses
+`app.main:app` and the cached real worker.
+
 ```text
 HTTP routes -> service rules -> repository / PostgreSQL
                     |
@@ -103,6 +115,19 @@ python -m pytest -q -ra --cov=app --cov-report=term-missing --cov-report=xml:cov
 The opt-in PostgreSQL test requires `RF54_POSTGRES_TEST=1` and a prepared local database. It refuses remote hosts and uses a rollback-contained fixture; only enable it against a suitable verification environment. A standard run can legitimately show that test skipped. Mock workers and image-decoding tests do not certify a physical camera, model download or a real person's recognition.
 
 ## Release and documentation policy
+
+Only four liveness challenges are enabled: `MOVE_UP`, `MOVE_DOWN`, `MOVE_CLOSER`
+and `MOVE_AWAY`. Registration and attendance still require two distinct challenges.
+The frontend selects only these four, and the microservice rejects the seven retired
+codes even when an older client submits them directly. Their detection thresholds
+and capture timing are unchanged.
+
+`tests/test_all_liveness_contracts.py` covers complete signals, all twelve incorrect
+substitutions, all twelve distinct pairs, still faces, identity changes and invalid
+measurements. The authenticated HTTP integration checks the four active challenges
+and rejection of the seven retired codes. Synthetic inference verifies rules and
+transport; physical-camera acceptance remains a separate check. Never use the test
+integration entry point in production.
 
 Record the exact component commits, CI run and artifacts for a coordinated release. Verify private connectivity, credentials, model startup, authorized registration/reset and attendance with the deployed backend/frontend. Obtain independent review; do not reuse a green result from another commit as the final head's CI evidence.
 

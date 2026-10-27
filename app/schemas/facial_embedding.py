@@ -168,7 +168,6 @@ class FacialEmbeddingPartialUpdate(BaseModel):
 class FacialEmbeddingResponse(BaseModel):
     id: UUID
     user_id: UUID
-    embedding: list[float]
     embedding_dimension: int
     model_name: str
     photo_reference: str | None

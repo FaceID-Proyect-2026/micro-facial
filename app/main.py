@@ -13,22 +13,6 @@ from app.workers.face_embedding_worker import get_face_embedding_worker
 logger = logging.getLogger("facelit.embedding")
 
 
-def _summarize_body(body):
-    if not isinstance(body, dict):
-        return body
-
-    summary = dict(body)
-    image = summary.get("image_base64")
-    if isinstance(image, str):
-        summary["image_base64"] = f"<base64 length={len(image)} prefix={image[:32]!r}>"
-    photo_reference = summary.get("photo_reference")
-    if isinstance(photo_reference, str) and len(photo_reference) > 120:
-        summary["photo_reference"] = (
-            f"<photo_reference length={len(photo_reference)} prefix={photo_reference[:32]!r}>"
-        )
-    return summary
-
-
 def create_app() -> FastAPI:
     app = FastAPI(
         title=settings.app_name,
@@ -54,6 +38,8 @@ def create_app() -> FastAPI:
 
     @app.on_event("startup")
     async def warm_up_model() -> None:
+        if not settings.api_key.strip() or settings.api_key.strip() == "change-me":
+            raise RuntimeError("API_KEY debe contener una clave de servicio propia antes de iniciar.")
         if not settings.preload_model:
             logger.info("InsightFace startup warm-up disabled")
             return
@@ -63,14 +49,15 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request, exc: RequestValidationError):
+        # Pydantic errors may contain the full image/vector as input or a non-JSON exception in ctx.
+        errors = [{key: item[key] for key in ("type", "loc", "msg") if key in item} for item in exc.errors()]
         logger.warning(
-            "Validation error on %s %s errors=%s body=%s",
+            "Validation error on %s %s errors=%s",
             request.method,
             request.url.path,
-            exc.errors(),
-            _summarize_body(exc.body),
+            errors,
         )
-        return JSONResponse(status_code=422, content={"detail": exc.errors()})
+        return JSONResponse(status_code=422, content={"detail": errors})
 
     @app.exception_handler(Exception)
     async def unexpected_exception_handler(request: Request, exc: Exception):

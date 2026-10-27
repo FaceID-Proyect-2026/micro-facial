@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     environment: str = "local"
     api_key: str = ""
     database_url: str = Field(
-        default="postgresql+asyncpg://facelit_user:facelit_password@localhost:5439/facelit-db",
+        ...,
         description="SQLAlchemy async database URL.",
     )
     cors_origins: list[str] = ["http://localhost:8081", "http://localhost:19006"]
