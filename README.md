@@ -4,6 +4,18 @@ FastAPI service for facial-template registration, liveness checks and attendance
 
 ## Architecture
 
+Three logical layers are kept: HTTP routes and schemas, application services/rules,
+and SQL/model adapters. `api/dependencies.py` composes request dependencies so routes
+do not instantiate persistence or inference implementations. `FacialEmbeddingService`
+remains the compatible application facade; `LivenessValidator` owns temporal rules,
+and small protocols describe the generator, policy and store it consumes.
+
+The backend HTTP integration and shared PostgreSQL schema are preserved. The fixture
+in `tests/support/e2e_app.py` uses the real routes, rules and database but substitutes
+image inference. It is exclusively for the sibling DB repository's isolated E2E
+runner and must never be used as the deployment entry point. Production still uses
+`app.main:app` and the cached real worker.
+
 ```text
 HTTP routes -> service rules -> repository / PostgreSQL
                     |
