@@ -5,7 +5,19 @@ services:
     build: .
     env_file:
       - .env
+    environment:
+      PRELOAD_MODEL: "true"
     ports:
       - "${SERVICE_PORT:-8090}:8090"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    volumes:
+      - insightface-models:/root/.insightface
+    networks:
+      - facelit-db-network
+
+volumes:
+  insightface-models:
+
+networks:
+  facelit-db-network:
+    external: true
+    name: facelit-docker-compose_default

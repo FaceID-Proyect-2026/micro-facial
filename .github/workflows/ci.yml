@@ -1,0 +1,66 @@
+name: FaceLit Micro Facial CI
+
+on:
+  pull_request:
+  push:
+    branches: [dev, qa, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python-tests:
+    name: Python unit tests and coverage
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      ENVIRONMENT: ci
+      API_KEY: ci-only-not-a-production-key
+      PRELOAD_MODEL: 'false'
+      DATABASE_URL: postgresql+asyncpg://ci:ci@127.0.0.1:5432/facelit_ci
+    steps:
+      - name: Checkout microservice
+        uses: actions/checkout@v4
+
+      - name: Install native build and runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake libgl1 libglib2.0-0 libgomp1
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+            requirements-ci.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-ci.txt
+          python -m pip check
+
+      - name: Lint Python errors
+        run: python -m ruff check --select E9,F63,F7,F82 app tests
+
+      # PostgreSQL opt-in test requires a separately provisioned local database and is skipped.
+      - name: Compile Python sources
+        run: python -m compileall -q app tests
+
+      - name: Run pytest with coverage
+        run: python -m pytest -q -ra --cov=app --cov-report=term-missing --cov-report=xml:coverage.xml --cov-report=html:htmlcov --junitxml=pytest-results.xml
+
+      - name: Upload test and coverage reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: micro-facial-tests-and-coverage
+          path: |
+            coverage.xml
+            pytest-results.xml
+            htmlcov/
+          if-no-files-found: warn
