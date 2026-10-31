@@ -5,6 +5,7 @@ import os
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
+from threading import Lock
 from typing import Any
 
 from app.core.config import settings
@@ -23,8 +24,15 @@ class GeneratedEmbedding:
 class FaceEmbeddingWorker:
     def __init__(self) -> None:
         self._model = None
+        self._inference_lock = Lock()
+        self._inference_warmed = False
 
     def generate(self, image_base64: str) -> GeneratedEmbedding:
+        # The cached MediaPipe/InsightFace objects are shared across HTTP requests.
+        with self._inference_lock:
+            return self._generate(image_base64)
+
+    def _generate(self, image_base64: str) -> GeneratedEmbedding:
         image = decode_image_base64(image_base64)
         faces = self._get_model().get(image)
 
@@ -48,7 +56,24 @@ class FaceEmbeddingWorker:
         )
 
     def warm_up(self) -> None:
-        self._get_model()
+        with self._inference_lock:
+            model = self._get_model()
+            if not self._inference_warmed:
+                self._prime_inference(model)
+                self._inference_warmed = True
+
+    @staticmethod
+    def _prime_inference(model) -> None:
+        import numpy as np
+
+        # Allocate/prepare inference kernels before serving the first capture.
+        # Blank synthetic inputs are discarded; no user or biometric record is created.
+        image = np.zeros((settings.insightface_det_size, settings.insightface_det_size, 3), dtype=np.uint8)
+        model.get(image)
+        recognition = model.models["recognition"]
+        width, height = recognition.input_size
+        recognition.get_feat(np.zeros((height, width, 3), dtype=np.uint8))
+        face_mesh_metrics(image)
 
     def _get_model(self):
         if self._model is None:
@@ -60,6 +85,9 @@ class FaceEmbeddingWorker:
 
             model = FaceAnalysis(
                 name=settings.insightface_model_name,
+                # kps/bbox come from detection; expression metrics use MediaPipe below.
+                # Age/gender and InsightFace's additional landmark models are unused.
+                allowed_modules=["detection", "recognition"],
                 providers=["CPUExecutionProvider"],
             )
             model.prepare(
@@ -160,7 +188,6 @@ def face_mesh_metrics(image: Any) -> dict[str, float]:
 
     try:
         import cv2
-        import numpy as np
     except ImportError:
         return {}
 

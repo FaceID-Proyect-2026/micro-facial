@@ -1,4 +1,6 @@
+import asyncio
 import logging
+from time import perf_counter
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -55,7 +57,7 @@ class FacialEmbeddingService:
         return await self._register_embedding(payload)
 
     async def register_from_image(self, payload: FacialEmbeddingFromImageCreate) -> FacialEmbeddingResponse:
-        generated = self._generate_registration_embedding(payload)
+        generated = await asyncio.to_thread(self._generate_registration_embedding, payload)
         embedding_payload = FacialEmbeddingCreate(
             user_id=payload.user_id,
             embedding=generated.embedding,
@@ -73,7 +75,7 @@ class FacialEmbeddingService:
         if len(frames) < settings.liveness_min_frames * self.REQUIRED_LIVENESS_CHALLENGES:
             raise ValueError("El registro requiere dos retos de vida completos capturados en cámara.")
 
-        generated_frames = [self.embedding_worker.generate(frame) for frame in frames]
+        generated_frames = self._generate_frames(frames)
         live, liveness_reason = self._validate_liveness_sequence(generated_frames, challenges)
         if not live:
             raise ValueError(liveness_reason)
@@ -105,7 +107,7 @@ class FacialEmbeddingService:
                 liveness_reason="Se requiere una secuencia de frames capturada en vivo.",
             )
 
-        generated_frames = [self.embedding_worker.generate(frame) for frame in frames]
+        generated_frames = await asyncio.to_thread(self._generate_frames, frames)
         live, liveness_reason = self._validate_liveness_sequence(generated_frames, challenges)
         generated = generated_frames[-1]
         if not live:
@@ -189,9 +191,17 @@ class FacialEmbeddingService:
                 reason="La cámara no capturó suficientes imágenes para validar el reto.",
             )
 
-        generated_frames = [self.embedding_worker.generate(frame) for frame in frames]
+        generated_frames = self._generate_frames(frames)
         live, reason = self._validate_liveness(generated_frames, payload.liveness_challenge)
         return FacialLivenessCheckResponse(live=live, reason=reason)
+
+    def _generate_frames(self, frames: list[str]):
+        started = perf_counter()
+        try:
+            return [self.embedding_worker.generate(frame) for frame in frames]
+        finally:
+            # Counts and elapsed time only: never log images, vectors or credentials.
+            logger.info("facial inference: frames=%s elapsed_ms=%.1f", len(frames), (perf_counter() - started) * 1000)
 
     # Compatibility for callers that already exercise these rules through the facade.
     def _validate_liveness_sequence(self, frames, challenges: list[str]) -> tuple[bool, str]:

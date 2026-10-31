@@ -63,6 +63,12 @@ class Settings(BaseSettings):
     insightface_det_size: int = 640
     insightface_ctx_id: int = -1
     preload_model: bool = False
+    service_port: int = Field(
+        default=8090,
+        ge=1,
+        le=65535,
+        description="Puerto publicado por Compose; no cambia el puerto interno de Uvicorn.",
+    )
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
