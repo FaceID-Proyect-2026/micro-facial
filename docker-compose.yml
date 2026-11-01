@@ -2,6 +2,7 @@ name: facelit-embedding-service
 
 services:
   embedding-service:
+    init: true
     build: .
     env_file:
       - .env

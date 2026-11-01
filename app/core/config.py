@@ -62,6 +62,8 @@ class Settings(BaseSettings):
     insightface_model_name: str = "buffalo_l"
     insightface_det_size: int = 640
     insightface_ctx_id: int = -1
+    inference_cache_size: int = Field(default=64, ge=0, le=256)
+    inference_cache_ttl_seconds: float = Field(default=60.0, ge=0.0, le=120.0)
     preload_model: bool = False
     service_port: int = Field(
         default=8090,

@@ -88,3 +88,72 @@ QA debe completar y adjuntar:
 - [ ] Adjuntar las ejecuciones de pruebas y CI del SHA entregado, sin imágenes de usuarios, embeddings, claves ni JWT.
 
 Estado: implementación local y verificación automatizada; primera validación aún lenta, aceptación E2E con cámara y revisión independiente pendientes. No se declara cerrado el rendimiento de todos los flujos únicamente por mejorar el ensayo de una captura estática. QA debe tratar la espera de primera validación como pendiente de rendimiento, no aprobarla por los tiempos de las peticiones posteriores.
+
+## Seguimiento: asistencia de 3 minutos y 35 segundos
+
+La usuaria reportó 215 segundos para un aprendiz. Es una observación del flujo completo, no un tiempo medido aisladamente de SQL o red. Se conserva como incidencia abierta hasta repetir el recorrido con cámara y adjuntar tiempos.
+
+### Diagnóstico y cambios acotados
+
+- El cliente actual valida siete frames por reto y vuelve a enviar los catorce al guardar. Antes el worker volvía a calcular las características de esos mismos frames. Se conserva la validación final; se reutiliza únicamente su inferencia cuando la entrada es exactamente la misma.
+- `app/workers/face_embedding_worker.py`: caché en memoria del worker, bajo su lock existente, indexada por SHA-256 de la entrada. Límite predeterminado 64 resultados, validez máxima de reutilización 60 segundos, sin extenderla con los accesos. No almacena imágenes, identificadores de usuarios, permisos, resultados de liveness ni decisiones de asistencia. Sí contiene temporalmente características biométricas derivadas. Las entradas caducadas se purgan al procesar otra captura; es caducidad de reutilización, no una tarea de borrado por reloj durante inactividad. El proceso las pierde al reiniciarse y la capacidad permanece limitada. No es persistencia en PostgreSQL.
+- La consulta actual de candidatos, el umbral, la cuenta activa, la sesión y las reglas de ambos retos se vuelven a comprobar por sus capas existentes. Errores de inferencia no se almacenan. Al expirar o desalojar una entrada se recalcula; esto puede tardar más, pero no concede acceso.
+- `app/core/config.py` y `.env.example`: `INFERENCE_CACHE_SIZE` y `INFERENCE_CACHE_TTL_SECONDS`, con límites y opción de desactivar mediante 0. No es necesario editar el `.env` privado para usar los valores predeterminados.
+- El calentamiento anterior con imagen vacía no ejercitaba la rama de landmarks de FaceMesh sobre una cara. El calentamiento actual agrega un recorte de la imagen pública `t1` incluida en InsightFace 0.7.3. Se usa antes de completar startup, se descarta y no se registra ni introduce en la caché de capturas. Puede aumentar la espera de arranque a cambio de preparar esa rama antes de atender al primer usuario. No convierte la fotografía de prueba en una prueba de presencia real.
+- Se confirmó en el código de InsightFace 0.7.3 que `allowed_modules` filtra después de construir las sesiones ONNX. El cargador de `buffalo_l` ahora abre directamente los mismos `det_10g.onnx` y `w600k_r50.onnx`, conserva los métodos `get/prepare` de FaceAnalysis y verifica el tipo de cada modelo. Evita cargar para luego descartar modelos de edad/género y landmarks no usados. Los otros paquetes mantienen su cargador anterior. No se aplicó el ajuste experimental de hilos. Este adaptador depende de los nombres del paquete fijado: una actualización de InsightFace/modelos requiere revisar la prueba y el cargador.
+- `tests/test_frame_inference_cache.py`: siete pruebas sobre reutilización exacta, gesto distinto rechazado, expiración fija, capacidad/LRU, desactivación por tamaño o TTL, errores y concurrencia. `tests/test_inference_runtime.py` agrega comprobación de ambas ramas de calentamiento con dependencias simuladas.
+- `docker-compose.yml`: `init: true` para gestionar señales y recoger procesos al detener el servicio. Durante la aplicación local Docker informó un PID zombie e impidió reemplazar el contenedor; se retiró únicamente ese contenedor con `docker rm -f`, conservando el volumen de modelos. No se reinició Docker Desktop ni PostgreSQL. Este incidente de operación no demuestra por sí solo la causa de los 215 segundos originales.
+- `scripts/benchmark_liveness.py --flow`: genera catorce codificaciones JPEG diferentes de la imagen pública, mide dos grupos nuevos de siete y su revalidación de catorce. Usa solo `/liveness-check`; no escribe rostros ni asistencia. El cliente lee la imagen de la dependencia sin importar otra instancia completa de InsightFace para no competir innecesariamente por memoria. Las capturas estáticas deben seguir devolviendo `live: false`.
+
+No se cambian los dos retos, sus umbrales, la resolución, el modelo, endpoints, SQL, esquema ni lógica de cámara. No se agregan dependencias ni se modifica la arquitectura por capas. Frontend y backend no requieren cambios funcionales para aprovechar esta reutilización.
+
+### Observaciones y límites de las mediciones
+
+Una petición HTTP estática anterior al cambio no respondió dentro de 180 segundos. La consulta a `pg_stat_activity` no mostró consultas activas bloqueadas en ese instante; eso no excluye problemas de BD en otros momentos. No se atribuye toda la demora a la conexión entre APIs.
+
+Se ensayó por separado una configuración de 1 y 2 hilos con el mismo modelo. Hubo gran variación entre carga, primera inferencia y repeticiones; no produjo una mejora consistente y no se incorpora ese adaptador al producto. La ejecución auxiliar usaba otra instancia y competía por recursos; no sirve como comparación justa de la latencia del usuario. Durante ese diagnóstico, Windows reportó aproximadamente 0,5 GB libres de 8 GB; no se presenta como prueba de que la RAM sea la única causa del reporte original.
+
+Regresión final del worker/configuración y cargador selectivo: **134 aprobadas, 2 omitidas, 24 advertencias**; lint aprobado. Las omisiones siguen siendo OpenCV ausente en el Python de pruebas Windows y la integración PostgreSQL opt-in. El calentamiento y el cargador se prueban unitariamente con dependencias simuladas; su ejecución real se comprueba al arrancar el contenedor. Evidencia: `ci-evidence/hu46-cache-regression.log`, en la carpeta común.
+
+### Repetición del ensayo HTTP sin datos de usuarios
+
+Desde micro-facial, después de que el servicio termine startup y `/health` responda:
+
+```powershell
+docker cp scripts/benchmark_liveness.py facelit-embedding-service-embedding-service-1:/tmp/benchmark_liveness.py
+docker exec -e PYTHONPATH=/app facelit-embedding-service-embedding-service-1 python -u /tmp/benchmark_liveness.py --flow --label hu46-cache --repeat 1
+```
+
+Las tres respuestas deben ser HTTP 200 y `live: false`. El último paso reutiliza las mismas entradas, pero este endpoint vuelve a ejecutar sus reglas y debe rechazar la foto estática. No es un registro completo ni una medida de cámara, búsqueda SQL o persistencia. No comparar este modo con el ensayo histórico de siete copias idénticas como si fueran la misma carga.
+
+Pendiente: registrar la medición del servicio reconstruido y repetir entrada/salida con cámara real para dos aprendices consecutivos, con el servicio ya preparado. Anotar por separado captura, validación de cada reto y guardado; conservar el UUID de sesión y los eventos resultantes. No se declara corregido todo el tiempo reportado sin esa aceptación.
+
+### Perfil de la espera y corrección de propiedad del detector
+
+El ensayo con siete codificaciones nuevas volvió a superar 180 segundos incluso con el servicio preparado. Por tanto, la caché y el cargador selectivo no bastaban para cerrar la incidencia. Se usó temporalmente [py-spy](https://github.com/benfred/py-spy) 0.4.2, fuera de la imagen de producción y sin `--locals`. La muestra de pila dejó el loop HTTP principal en `select` y el hilo AnyIO de validación esperando en `mediapipe/python/solution_base.py:340`, llamado desde `FaceMesh.process`, no en SQL. Evidencia local: `ci-evidence/hu46-mediapipe-profile.log`. El contenedor auxiliar fue retirado; no se agregó py-spy como dependencia del proyecto.
+
+Se detectó que el calentamiento construía y usaba el detector en el hilo de startup, pero las validaciones posteriores lo usaban en hilos AnyIO/asyncio diferentes. La muestra identifica la espera en MediaPipe; atribuirla exclusivamente a esa migración requiere la comparación posterior, no solo la observación de una pila.
+
+Corrección: el worker conserva un ejecutor de un solo hilo para creación, calentamiento y procesamiento. La llamada HTTP permanece fuera del loop asíncrono durante el cálculo; SQL continúa en su capa/event loop. FaceMesh se reutiliza por hilo mediante almacenamiento local, evitando que otra instancia de worker herede un grafo creado por un hilo distinto. `app/main.py` cierra el ejecutor y limpia la instancia en shutdown. Los contratos y reglas de los retos se mantienen.
+
+Se agregaron pruebas para comprobar que startup y peticiones desde varios hilos usan el mismo propietario de inferencia, y que dos hilos distintos no comparten el objeto FaceMesh. La aceptación de rendimiento sigue pendiente del ensayo real de esta versión y de la prueba con cámara; los resultados anteriores no se presentan como mejora lograda.
+
+Regresión de esta versión con hilo propietario y cierre ordenado: **136 aprobadas, 2 omitidas, 46 advertencias**; lint y `git diff --check` aprobados. Las advertencias incluyen las deprecaciones de los eventos startup/shutdown existentes de FastAPI y las de Pydantic; no son resultados de reconocimiento facial. Las dos omisiones conservan los motivos descritos arriba. El log actualizado es `ci-evidence/hu46-cache-regression.log`.
+
+### Medición real de la versión con hilo propietario
+
+La imagen local se reconstruyó y se inició con `init`, conservando el volumen de modelos y PostgreSQL. El servicio completó startup. Ensayo `hu46-owner-thread`, primera ronda, con catorce JPEG diferentes de la misma fotografía pública:
+
+| Fase HTTP del ensayo | Frames | Duración | Resultado |
+|---|---:|---:|---|
+| Primer grupo nuevo | 7 | 15,4445 s | HTTP 200, captura estática rechazada |
+| Segundo grupo nuevo | 7 | 9,0685 s | HTTP 200, captura estática rechazada |
+| Revalidación de los catorce frames | 14 | 0,0722 s | HTTP 200, captura estática rechazada |
+
+Suma de esas peticiones: **24,5852 segundos**. Evidencia: `ci-evidence/hu46-owner-thread-http-flow.log`. La revalidación pudo reutilizar las inferencias y volvió a aplicar las reglas, conservando el rechazo de una foto inmóvil. Esto demuestra respuesta del micro y reducción del trabajo repetido en ese ensayo; no acredita la precisión con personas ni el tiempo total de asistencia.
+
+La prueba con siete frames nuevos de la versión anterior a la propiedad del hilo había superado el timeout de 180 segundos, registrado en `ci-evidence/hu46-cache-http-flow-final.log`. Las condiciones y la carga del equipo variaron; no se calcula un porcentaje general de mejora ni se equipara el reporte manual de 215 segundos con esta suma. El arranque en frío también siguió siendo largo y se documenta como limitación; no se incluye en los tiempos de peticiones con el servicio preparado.
+
+**Estado actual:** servicio local operativo y ensayo HTTP aprobado; la velocidad aún no se declara aceptada para una ficha de cuarenta personas. Persisten entre 9 y 15 segundos por grupo nuevo en esta observación. QA debe medir dos asistencias reales consecutivas con el servicio preparado, separando tiempo de captura, retos, guardado y respuesta de la interfaz. Si la meta exige menos tiempo, debe acordarse un objetivo medible y evaluar el costo restante de inferencia sin reducir comprobaciones de identidad o presencia real. No hay commit/push ni despliegue en producción de estos cambios.
+
+Comprobaciones adicionales reales: `/health` respondió `ok` desde Windows en `127.0.0.1:8091`; la fotografía pública completa con varias personas devolvió HTTP 400 y `La imagen contiene mas de un rostro.`. No se inscribió ninguna persona ni se insertó asistencia durante estos ensayos. Evidencia de rechazo: `ci-evidence/hu46-owner-thread-multiple-faces.log`. La base habitual se mantuvo en su contenedor, sin reinicios ni cambios de esquema por esta corrección.

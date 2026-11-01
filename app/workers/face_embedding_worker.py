@@ -2,10 +2,14 @@ import base64
 import binascii
 import math
 import os
+from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from functools import lru_cache
+from hashlib import sha256
 from pathlib import Path
-from threading import Lock
+from threading import Lock, local
+from time import monotonic
 from typing import Any
 
 from app.core.config import settings
@@ -26,11 +30,34 @@ class FaceEmbeddingWorker:
         self._model = None
         self._inference_lock = Lock()
         self._inference_warmed = False
+        self._recent_frames = OrderedDict()
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='facelit-inference')
 
     def generate(self, image_base64: str) -> GeneratedEmbedding:
+        return self._executor.submit(self._generate_serialized, image_base64).result()
+
+    def _generate_serialized(self, image_base64: str) -> GeneratedEmbedding:
         # The cached MediaPipe/InsightFace objects are shared across HTTP requests.
         with self._inference_lock:
-            return self._generate(image_base64)
+            now = monotonic()
+            # Only derived inference features are retained briefly, never images,
+            # account IDs, authorization or liveness decisions. The final request
+            # must still validate both gestures and query the current database.
+            for key, (expires, _) in list(self._recent_frames.items()):
+                if expires <= now:
+                    del self._recent_frames[key]
+            enabled = settings.inference_cache_size > 0 and settings.inference_cache_ttl_seconds > 0
+            key = sha256(image_base64.encode('utf-8')).digest() if enabled else None
+            if key in self._recent_frames:
+                expires, generated = self._recent_frames.pop(key)
+                self._recent_frames[key] = (expires, generated)
+                return generated
+            generated = self._generate(image_base64)
+            if enabled:
+                self._recent_frames[key] = (monotonic() + settings.inference_cache_ttl_seconds, generated)
+                while len(self._recent_frames) > settings.inference_cache_size:
+                    self._recent_frames.popitem(last=False)
+            return generated
 
     def _generate(self, image_base64: str) -> GeneratedEmbedding:
         image = decode_image_base64(image_base64)
@@ -56,15 +83,22 @@ class FaceEmbeddingWorker:
         )
 
     def warm_up(self) -> None:
+        self._executor.submit(self._warm_up_serialized).result()
+
+    def _warm_up_serialized(self) -> None:
         with self._inference_lock:
             model = self._get_model()
             if not self._inference_warmed:
                 self._prime_inference(model)
                 self._inference_warmed = True
 
+    def close(self) -> None:
+        self._executor.shutdown(wait=True, cancel_futures=True)
+
     @staticmethod
     def _prime_inference(model) -> None:
         import numpy as np
+        from insightface.data import get_image
 
         # Allocate/prepare inference kernels before serving the first capture.
         # Blank synthetic inputs are discarded; no user or biometric record is created.
@@ -74,6 +108,13 @@ class FaceEmbeddingWorker:
         width, height = recognition.input_size
         recognition.get_feat(np.zeros((height, width, 3), dtype=np.uint8))
         face_mesh_metrics(image)
+        # A blank frame does not run FaceMesh's landmark branch. Prime that
+        # branch too, using the public sample bundled with pinned InsightFace,
+        # before startup is considered complete. Never enroll or cache it.
+        sample = get_image("t1")
+        if sample.shape[:2] != (886, 1280):
+            raise RuntimeError("The bundled inference warm-up sample changed; review its crop")
+        face_mesh_metrics(sample[180:450, 410:650])
 
     def _get_model(self):
         if self._model is None:
@@ -81,9 +122,7 @@ class FaceEmbeddingWorker:
             matplotlib_cache.mkdir(parents=True, exist_ok=True)
             os.environ.setdefault("MPLCONFIGDIR", str(matplotlib_cache.resolve()))
 
-            from insightface.app import FaceAnalysis
-
-            model = FaceAnalysis(
+            model = load_face_analysis(
                 name=settings.insightface_model_name,
                 # kps/bbox come from detection; expression metrics use MediaPipe below.
                 # Age/gender and InsightFace's additional landmark models are unused.
@@ -96,6 +135,35 @@ class FaceEmbeddingWorker:
             )
             self._model = model
         return self._model
+
+
+def load_face_analysis(**options):
+    """Keep InsightFace inference methods, avoiding unused sessions in its pinned pack."""
+    from insightface.app import FaceAnalysis
+
+    if options['name'] != 'buffalo_l':
+        return FaceAnalysis(**options)
+
+    from insightface import model_zoo
+    from insightface.utils.storage import ensure_available
+
+    # InsightFace 0.7.3 initializes every ONNX session before filtering modules.
+    # These are the same two files used by its buffalo_l detection/recognition;
+    # no weights, thresholds, preprocessing, get() or prepare() are replaced.
+    model_dir = ensure_available('models', 'buffalo_l', root='~/.insightface')
+    analysis = FaceAnalysis.__new__(FaceAnalysis)
+    analysis.model_dir = model_dir
+    analysis.models = {}
+    for task, filename in (('detection', 'det_10g.onnx'), ('recognition', 'w600k_r50.onnx')):
+        path = Path(model_dir) / filename
+        if not path.is_file():
+            raise RuntimeError(f'Missing required buffalo_l model: {filename}')
+        model = model_zoo.get_model(str(path), providers=options['providers'])
+        if model is None or model.taskname != task:
+            raise RuntimeError(f'Unexpected model task in buffalo_l: {filename}')
+        analysis.models[task] = model
+    analysis.det_model = analysis.models['detection']
+    return analysis
 
 
 def decode_image_base64(image_base64: str) -> Any:
@@ -301,8 +369,13 @@ def mesh_mouth_white_ratio(image: Any, landmarks: Any) -> float:
     return float(np.mean(white))
 
 
-@lru_cache
+_face_mesh_state = local()
+
+
 def get_face_mesh():
+    cached = getattr(_face_mesh_state, 'model', None)
+    if cached is not None:
+        return cached
     matplotlib_cache = Path(".cache") / "matplotlib"
     matplotlib_cache.mkdir(parents=True, exist_ok=True)
     os.environ.setdefault("MPLCONFIGDIR", str(matplotlib_cache.resolve()))
@@ -312,14 +385,23 @@ def get_face_mesh():
     except ImportError:
         return None
 
-    return mp.solutions.face_mesh.FaceMesh(
+    model = mp.solutions.face_mesh.FaceMesh(
         static_image_mode=True,
         max_num_faces=1,
         refine_landmarks=True,
         min_detection_confidence=0.5,
     )
+    _face_mesh_state.model = model
+    return model
 
 
 @lru_cache
 def get_face_embedding_worker() -> FaceEmbeddingWorker:
     return FaceEmbeddingWorker()
+
+
+def close_face_embedding_worker() -> None:
+    if get_face_embedding_worker.cache_info().currsize:
+        worker = get_face_embedding_worker()
+        get_face_embedding_worker.cache_clear()
+        worker.close()
