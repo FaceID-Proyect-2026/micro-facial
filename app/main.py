@@ -1,4 +1,5 @@
 import logging
+import asyncio
 
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
@@ -8,7 +9,7 @@ from starlette.requests import Request
 
 from app.api.v1.router import api_router
 from app.core.config import settings
-from app.workers.face_embedding_worker import get_face_embedding_worker
+from app.workers.face_embedding_worker import get_face_embedding_worker, close_face_embedding_worker
 
 logger = logging.getLogger("facelit.embedding")
 
@@ -46,6 +47,10 @@ def create_app() -> FastAPI:
         logger.info("Warming up InsightFace model")
         get_face_embedding_worker().warm_up()
         logger.info("InsightFace model ready")
+
+    @app.on_event("shutdown")
+    async def close_model_worker() -> None:
+        await asyncio.to_thread(close_face_embedding_worker)
 
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request, exc: RequestValidationError):

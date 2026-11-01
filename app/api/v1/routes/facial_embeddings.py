@@ -1,6 +1,7 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from starlette.concurrency import run_in_threadpool
 
 from app.api.dependencies import ApiKeyGuard, facial_service
 from app.schemas.facial_embedding import (
@@ -84,7 +85,7 @@ async def check_liveness(
     service: FacialEmbeddingService = Depends(facial_service),
 ) -> FacialLivenessCheckResponse:
     try:
-        return service.check_liveness(payload)
+        return await run_in_threadpool(service.check_liveness, payload)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
