@@ -1,5 +1,7 @@
 # FaceLit facial embedding service
 
+# Documentación : https://github.com/FaceID-Proyect-2026/facelit-docs
+
 FastAPI service for facial-template registration, liveness checks and attendance-session matching. It integrates with the FaceLit backend and PostgreSQL schema managed by [FaceLit-DB](https://github.com/FaceID-Proyect-2026/FaceLit-DB).
 
 ## Architecture
