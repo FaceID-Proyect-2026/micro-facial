@@ -1,26 +1,21 @@
 from functools import lru_cache
+import json
+from typing import Annotated
+from urllib.parse import urlsplit
 
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     app_name: str = "FaceLit Embedding Service"
-    environment: str = "local"
+    environment: str = "production"
     api_key: str = ""
     database_url: str = Field(
         ...,
         description="SQLAlchemy async database URL.",
     )
-    cors_origins: list[str] = ["http://localhost:8081", "http://localhost:19006"]
-    cors_origin_regex: str = (
-        r"https?://("
-        r"localhost|127\.0\.0\.1|0\.0\.0\.0|"
-        r"10(?:\.\d{1,3}){3}|"
-        r"172\.(?:1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2}|"
-        r"192\.168(?:\.\d{1,3}){2}"
-        r"):\d+"
-    )
+    cors_origins: Annotated[list[str], NoDecode] = Field(default_factory=list)
     min_embedding_dimension: int = 32
     max_embedding_dimension: int = 4096
     facial_match_threshold: float = Field(
@@ -78,8 +73,21 @@ class Settings(BaseSettings):
     @classmethod
     def parse_cors_origins(cls, value: str | list[str]) -> list[str]:
         if isinstance(value, str):
-            return [item.strip() for item in value.split(",") if item.strip()]
-        return value
+            value = json.loads(value) if value.lstrip().startswith("[") else value.split(",")
+        if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+            raise ValueError("CORS_ORIGINS debe ser una lista de orígenes HTTP/HTTPS explícitos.")
+        origins = []
+        for item in value:
+            origin = item.strip().rstrip("/")
+            if not origin:
+                continue
+            parsed = urlsplit(origin)
+            if ("*" in origin or parsed.scheme not in {"http", "https"} or not parsed.hostname
+                    or parsed.username or parsed.password or parsed.path or parsed.query or parsed.fragment):
+                raise ValueError("Cada origen CORS debe indicar protocolo, servidor y puerto opcional, sin comodines ni rutas.")
+            if origin not in origins:
+                origins.append(origin)
+        return origins
 
 
 @lru_cache

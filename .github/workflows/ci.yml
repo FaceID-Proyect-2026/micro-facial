@@ -14,14 +14,29 @@ jobs:
     name: Python unit tests and coverage
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
     env:
       ENVIRONMENT: ci
       API_KEY: ci-only-not-a-production-key
       PRELOAD_MODEL: 'false'
-      DATABASE_URL: postgresql+asyncpg://ci:ci@127.0.0.1:5432/facelit_ci
+      POSTGRES_DB: facelit_integration
+      POSTGRES_USER: facelit_ci
+      POSTGRES_PASSWORD: ci-only-disposable-password
+      POSTGRES_PORT: '127.0.0.1:5439'
+      DATABASE_URL: postgresql+asyncpg://facelit_ci:ci-only-disposable-password@127.0.0.1:5439/facelit_integration
+      RF54_POSTGRES_TEST: '1'
     steps:
       - name: Checkout microservice
         uses: actions/checkout@v4
+
+      - name: Checkout reviewed database schema
+        uses: actions/checkout@v4
+        with:
+          repository: FaceID-Proyect-2026/FaceLit-DB
+          ref: 74c1af01ccc8690080f746b745a037555a85547e
+          path: database
 
       - name: Install native build and runtime libraries
         run: |
@@ -47,12 +62,36 @@ jobs:
       - name: Lint Python errors
         run: python -m ruff check --select E9,F63,F7,F82 app tests
 
-      # PostgreSQL opt-in test requires a separately provisioned local database and is skipped.
       - name: Compile Python sources
         run: python -m compileall -q app tests
 
+      - name: Migrate disposable PostgreSQL with pgvector
+        run: |
+          mkdir -p ci-logs
+          docker compose -f database/docker-compose.yml -p micro-ci up -d --wait postgres
+          docker compose -f database/docker-compose.yml -p micro-ci --profile tooling run --rm liquibase validate 2>&1 | tee ci-logs/validate.log
+          docker compose -f database/docker-compose.yml -p micro-ci --profile tooling run --rm liquibase update 2>&1 | tee ci-logs/update.log
+
       - name: Run pytest with coverage
         run: python -m pytest -q -ra --cov=app --cov-report=term-missing --cov-report=xml:coverage.xml --cov-report=html:htmlcov --junitxml=pytest-results.xml
+
+      - name: Require PostgreSQL replacement test to execute
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          cases = ET.parse('pytest-results.xml').getroot().iter('testcase')
+          expected = [case for case in cases if case.attrib.get('name') ==
+                      'test_real_postgres_replacement_consumption_and_rollback']
+          assert len(expected) == 1, 'PostgreSQL integration test report is missing'
+          assert not any(expected[0].find(tag) is not None for tag in
+                         ('skipped', 'failure', 'error')), 'PostgreSQL integration did not pass'
+          PY
+
+      - name: Preserve PostgreSQL logs
+        if: always()
+        run: |
+          mkdir -p ci-logs
+          docker compose -f database/docker-compose.yml -p micro-ci logs --no-color > ci-logs/postgres.log 2>&1
 
       - name: Upload test and coverage reports
         if: always()
@@ -63,4 +102,9 @@ jobs:
             coverage.xml
             pytest-results.xml
             htmlcov/
+            ci-logs/
           if-no-files-found: warn
+
+      - name: Remove disposable PostgreSQL
+        if: always()
+        run: docker compose -f database/docker-compose.yml -p micro-ci down --volumes --remove-orphans

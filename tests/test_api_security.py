@@ -9,7 +9,9 @@ from starlette.requests import Request
 
 from app.api.dependencies import require_api_key
 from app.core.config import settings
+from app.core.config import Settings
 from app.main import create_app
+from fastapi.testclient import TestClient
 from app.schemas.facial_embedding import FacialEmbeddingResponse
 
 
@@ -48,3 +50,40 @@ def test_validation_errors_are_serializable_and_do_not_echo_biometrics():
     assert response.status_code == 422
     assert "PRIVATE_BIOMETRIC_INPUT" not in response.body.decode()
     assert json.loads(response.body)["detail"][0]["loc"] == ["body", "image_frames"]
+
+
+@pytest.mark.parametrize("environment,expected", [("local", 200), ("production", 404), ("ci", 404), ("staging", 404)])
+def test_documentation_is_local_only(environment, expected, monkeypatch):
+    monkeypatch.setattr(settings, "environment", environment)
+    client = TestClient(create_app())
+    for path in ("/docs", "/redoc", "/openapi.json"):
+        assert client.get(path).status_code == expected
+    assert client.get("/health").status_code == 200
+
+
+def test_cors_accepts_only_explicit_origin_without_browser_credentials(monkeypatch):
+    monkeypatch.setattr(settings, "cors_origins", ["https://facelit.example.invalid"])
+    client = TestClient(create_app())
+    headers = {"Origin": "https://facelit.example.invalid", "Access-Control-Request-Method": "POST",
+               "Access-Control-Request-Headers": "X-API-Key,Content-Type"}
+    accepted = client.options("/api/v1/facial-embeddings/from-image", headers=headers)
+    assert accepted.status_code == 200
+    assert accepted.headers["access-control-allow-origin"] == headers["Origin"]
+    assert "access-control-allow-credentials" not in accepted.headers
+    for origin in ("https://untrusted.example.invalid", "http://192.168.1.4:8081"):
+        rejected = client.options("/api/v1/facial-embeddings/from-image", headers={**headers, "Origin": origin})
+        assert rejected.status_code == 400
+        assert "access-control-allow-origin" not in rejected.headers
+
+
+@pytest.mark.parametrize("value", ["*", "https://*.example.invalid", "https://example.invalid/path"])
+def test_cors_settings_reject_wildcards_and_paths(value):
+    with pytest.raises(ValueError):
+        Settings(_env_file=None, database_url="postgresql+asyncpg://test:test@localhost/test", cors_origins=value)
+
+
+@pytest.mark.parametrize("value", ["https://a.example.invalid,http://localhost:8081", '["https://a.example.invalid", "http://localhost:8081"]'])
+def test_cors_environment_accepts_csv_and_json(value, monkeypatch):
+    monkeypatch.setenv("CORS_ORIGINS", value)
+    config = Settings(_env_file=None, database_url="postgresql+asyncpg://test:test@localhost/test")
+    assert config.cors_origins == ["https://a.example.invalid", "http://localhost:8081"]

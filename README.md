@@ -66,7 +66,18 @@ Inspect [config.py](app/core/config.py) for current defaults and liveness thresh
 
 ## API and flow contracts
 
-OpenAPI is available locally at `/openapi.json`, with interactive documentation at `/docs` and `/redoc`. Exact schemas are defined in [facial_embedding.py](app/schemas/facial_embedding.py) and [the router](app/api/v1/routes/facial_embeddings.py).
+OpenAPI is available at `/openapi.json`, with `/docs` and `/redoc`, only when
+`ENVIRONMENT=local`. In production, staging and CI these HTTP routes return 404;
+the default environment is production. Exact schemas remain defined in
+[facial_embedding.py](app/schemas/facial_embedding.py) and
+[the router](app/api/v1/routes/facial_embeddings.py).
+
+`CORS_ORIGINS` accepts an explicit CSV or JSON list of HTTP/HTTPS browser origins.
+An empty list is the default and is appropriate when only the backend calls this
+private service. Wildcards, origin regexes and browser credentials are not enabled.
+Configure exact local origins when browser access is intentionally required.
+Backend-to-micro HTTP calls and `X-API-Key` authentication are unaffected by CORS;
+capture, model caching and inference parameters are unchanged.
 
 | Method and path | Purpose |
 | --- | --- |
@@ -115,6 +126,32 @@ python -m pytest -q -ra --cov=app --cov-report=term-missing --cov-report=xml:cov
 The opt-in PostgreSQL test requires `RF54_POSTGRES_TEST=1` and a prepared local database. It refuses remote hosts and uses a rollback-contained fixture; only enable it against a suitable verification environment. A standard run can legitimately show that test skipped. Mock workers and image-decoding tests do not certify a physical camera, model download or a real person's recognition.
 
 ## Release and documentation policy
+
+### Container health and model cache
+
+The Docker build installs Python dependencies in a build stage. The runtime
+contains the virtual environment and native runtime libraries, without
+`build-essential`, and runs as UID/GID `10001:10001`. Docker checks `/health`
+every 30 seconds, with a 300-second startup grace period. This process probe does
+not run recognition and does not certify database connectivity or camera accuracy.
+It does not add a delay to any registration/attendance request.
+
+The existing `insightface-models` volume now mounts at
+`/home/facelit/.insightface`; the model loader and preloading policy are unchanged.
+Keep the same Compose project/volume to reuse downloaded models. For an existing
+root-owned cache, the operator must grant its new owner write access once before
+starting the new image (after building it, while the service is stopped):
+
+```bash
+docker compose run --rm --no-deps --user root --entrypoint chown embedding-service -R 10001:10001 /home/facelit/.insightface
+```
+
+This maintenance command changes ownership of the existing model cache; it does
+not remove the volume or access PostgreSQL. New volumes receive the directory
+ownership from the image. A fresh or missing cache still requires model download;
+the healthcheck does not trigger downloads. Any external deployment Compose must
+use the same updated mount path and compatible ownership. First startup/download
+time is separate from request latency, which must be measured with a real camera.
 
 Only four liveness challenges are enabled: `MOVE_UP`, `MOVE_DOWN`, `MOVE_CLOSER`
 and `MOVE_AWAY`. Registration and attendance still require two distinct challenges.
