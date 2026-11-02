@@ -15,22 +15,22 @@ logger = logging.getLogger("facelit.embedding")
 
 
 def create_app() -> FastAPI:
+    local_docs = settings.environment.strip().lower() == "local"
     app = FastAPI(
         title=settings.app_name,
         version="1.0.0",
         description="API para guardar embeddings faciales de aprendices en FaceLit.",
-        openapi_url="/openapi.json",
-        docs_url="/docs",
-        redoc_url="/redoc",
+        openapi_url="/openapi.json" if local_docs else None,
+        docs_url="/docs" if local_docs else None,
+        redoc_url="/redoc" if local_docs else None,
     )
 
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
-        allow_origin_regex=settings.cors_origin_regex,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Content-Type", "X-API-Key"],
     )
 
     @app.get("/health", tags=["health"])
