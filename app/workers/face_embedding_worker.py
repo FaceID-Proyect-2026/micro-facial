@@ -4,7 +4,6 @@ import math
 import os
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
 from functools import lru_cache
 from hashlib import sha256
 from pathlib import Path
@@ -13,16 +12,7 @@ from time import monotonic
 from typing import Any
 
 from app.core.config import settings
-
-
-@dataclass(frozen=True)
-class GeneratedEmbedding:
-    embedding: list[float]
-    model_name: str
-    face_count: int
-    landmarks: list[list[float]]
-    bbox: list[float]
-    image_metrics: dict[str, float]
+from app.domain.embedding import GeneratedEmbedding  # compatibility export for existing callers
 
 
 class FaceEmbeddingWorker:

@@ -91,15 +91,15 @@ async def check_liveness(
 
 
 @router.get(
-    "/users/{user_id}",
+    "/apprentices/{apprentice_id}",
     response_model=FacialEmbeddingResponse,
-    summary="Consultar embedding facial activo por aprendiz",
+    summary="Consultar plantilla facial activa por ID de aprendiz",
 )
 async def get_active_facial_embedding(
-    user_id: UUID,
+    apprentice_id: UUID,
     service: FacialEmbeddingService = Depends(facial_service),
 ) -> FacialEmbeddingResponse:
-    record = await service.get_active_by_user(user_id)
+    record = await service.get_active_by_user(apprentice_id)
     if record is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -109,17 +109,17 @@ async def get_active_facial_embedding(
 
 
 @router.patch(
-    "/users/{user_id}",
+    "/apprentices/{apprentice_id}",
     response_model=FacialEmbeddingResponse,
-    summary="Actualizar parcialmente embedding facial activo por aprendiz",
+    summary="Actualizar metadatos de plantilla por ID de aprendiz",
 )
 async def update_facial_embedding_partial(
-    user_id: UUID,
+    apprentice_id: UUID,
     payload: FacialEmbeddingPartialUpdate,
     service: FacialEmbeddingService = Depends(facial_service),
 ) -> FacialEmbeddingResponse:
     try:
-        return await service.update_partial(user_id, payload)
+        return await service.update_partial(apprentice_id, payload)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except LookupError as exc:
@@ -140,16 +140,16 @@ async def list_active_facial_embeddings(
 
 
 @router.delete(
-    "/users/{user_id}",
+    "/apprentices/{apprentice_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Desactivar embedding facial activo",
+    summary="Desactivar plantilla facial por ID de aprendiz",
 )
 async def deactivate_facial_embedding(
-    user_id: UUID,
+    apprentice_id: UUID,
     deleted_by: str = Query(default="embedding-service", max_length=100),
     service: FacialEmbeddingService = Depends(facial_service),
 ) -> Response:
-    deleted = await service.deactivate(user_id, deleted_by)
+    deleted = await service.deactivate(apprentice_id, deleted_by)
     if not deleted:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

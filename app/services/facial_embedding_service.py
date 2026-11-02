@@ -3,12 +3,10 @@ import logging
 from time import perf_counter
 from uuid import UUID
 
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.repositories.facial_embedding_repository import FacialEmbeddingRepository
 from app.services.liveness_validator import LivenessValidator
-from app.services.ports import EmbeddingGenerator, FacialEmbeddingStore, LivenessPolicy
+from app.services.ports import EmbeddingGenerator, FacialEmbeddingStore, LivenessPolicy, UnitOfWork
 from app.schemas.facial_embedding import (
     FacialEmbeddingCreate,
     FacialEmbeddingFromImageCreate,
@@ -20,7 +18,6 @@ from app.schemas.facial_embedding import (
     FacialVerificationRequest,
     FacialVerificationResponse,
 )
-from app.workers.face_embedding_worker import get_face_embedding_worker
 
 logger = logging.getLogger("facelit.embedding")
 
@@ -40,16 +37,16 @@ class FacialEmbeddingService:
     REQUIRED_LIVENESS_CHALLENGES = LivenessValidator.REQUIRED_LIVENESS_CHALLENGES
     def __init__(
         self,
-        session: AsyncSession,
-        embedding_worker: EmbeddingGenerator | None = None,
+        session: UnitOfWork,
+        embedding_worker: EmbeddingGenerator,
         *,
-        repository: FacialEmbeddingStore | None = None,
+        repository: FacialEmbeddingStore,
         liveness_validator: LivenessPolicy | None = None,
     ) -> None:
         self.session = session
-        self.repository = repository if repository is not None else FacialEmbeddingRepository(session)
+        self.repository = repository
         self.liveness_validator = liveness_validator if liveness_validator is not None else LivenessValidator()
-        self.embedding_worker = embedding_worker or get_face_embedding_worker()
+        self.embedding_worker = embedding_worker
 
     async def register(self, payload: FacialEmbeddingCreate) -> FacialEmbeddingResponse:
         if payload.reset_token is not None:
@@ -59,7 +56,8 @@ class FacialEmbeddingService:
     async def register_from_image(self, payload: FacialEmbeddingFromImageCreate) -> FacialEmbeddingResponse:
         generated = await asyncio.to_thread(self._generate_registration_embedding, payload)
         embedding_payload = FacialEmbeddingCreate(
-            user_id=payload.user_id,
+            apprentice_id=payload.apprentice_id,
+            reset_owner_user_id=payload.reset_owner_user_id,
             embedding=generated.embedding,
             model_name=generated.model_name,
             photo_reference=payload.photo_reference,
@@ -81,7 +79,7 @@ class FacialEmbeddingService:
             raise ValueError(liveness_reason)
         logger.info(
             "from-image liveness accepted: user=%s frames=%s challenges=%s reason=%s",
-            payload.user_id,
+            payload.apprentice_id,
             len(frames),
             challenges,
             liveness_reason,
@@ -127,7 +125,7 @@ class FacialEmbeddingService:
             )
 
         row = await self.repository.find_best_session_match(
-            record_environment_id=payload.record_environment_id,
+            candidate_apprentice_ids=payload.candidate_apprentice_ids,
             embedding=generated.embedding,
         )
         if row is None:
@@ -215,7 +213,7 @@ class FacialEmbeddingService:
         return LivenessValidator.resolve_challenges(challenges, challenge)
 
     async def _register_embedding(self, payload: FacialEmbeddingCreate) -> FacialEmbeddingResponse:
-        apprentice_id = await self._resolve_apprentice_id(payload.user_id)
+        apprentice_id = payload.apprentice_id
 
         try:
             duplicate = await self.repository.find_duplicate_embedding(
@@ -231,7 +229,12 @@ class FacialEmbeddingService:
                     float(duplicate["similarity"]),
                 )
                 raise DuplicateFaceError()
-            await self.repository.authorize_registration(apprentice_id, payload.replace_existing, payload.reset_token)
+            await self.repository.authorize_registration(
+                apprentice_id,
+                payload.reset_owner_user_id,
+                payload.replace_existing,
+                payload.reset_token,
+            )
             row = await self.repository.upsert(
                 user_id=apprentice_id,
                 embedding=payload.embedding,
@@ -246,14 +249,13 @@ class FacialEmbeddingService:
 
         return FacialEmbeddingResponse.model_validate(row)
 
-    async def get_active_by_user(self, user_id: UUID) -> FacialEmbeddingResponse | None:
-        apprentice_id = await self._resolve_apprentice_id(user_id)
+    async def get_active_by_user(self, apprentice_id: UUID) -> FacialEmbeddingResponse | None:
         row = await self.repository.get_active_by_user(apprentice_id)
         return FacialEmbeddingResponse.model_validate(row) if row else None
 
     async def update_partial(
         self,
-        user_id: UUID,
+        apprentice_id: UUID,
         payload: FacialEmbeddingPartialUpdate,
     ) -> FacialEmbeddingResponse:
         if payload.embedding is not None or payload.image_base64 is not None:
@@ -267,8 +269,6 @@ class FacialEmbeddingService:
             raise ValueError("La imagen no puede ser nula.")
         if "model_name" in payload.model_fields_set and payload.model_name is None:
             raise ValueError("model_name no puede ser nulo.")
-
-        apprentice_id = await self._resolve_apprentice_id(user_id)
 
         model_name = payload.model_name if "model_name" in payload.model_fields_set else None
 
@@ -294,8 +294,7 @@ class FacialEmbeddingService:
         rows = await self.repository.list_active(limit=limit, offset=offset)
         return [FacialEmbeddingSummary.model_validate(row) for row in rows]
 
-    async def deactivate(self, user_id: UUID, deleted_by: str) -> bool:
-        apprentice_id = await self._resolve_apprentice_id(user_id)
+    async def deactivate(self, apprentice_id: UUID, deleted_by: str) -> bool:
         try:
             deleted = await self.repository.deactivate(apprentice_id, deleted_by)
             await self.session.commit()
@@ -303,9 +302,3 @@ class FacialEmbeddingService:
             await self.session.rollback()
             raise
         return deleted
-
-    async def _resolve_apprentice_id(self, user_id: UUID) -> UUID:
-        apprentice_id = await self.repository.resolve_apprentice_id(user_id)
-        if apprentice_id is None:
-            return user_id
-        return apprentice_id

@@ -24,7 +24,7 @@ def valid_payload(**overrides):
 def test_accepts_valid_embedding_payload():
     payload = FacialEmbeddingCreate(**valid_payload())
 
-    assert payload.user_id
+    assert payload.apprentice_id
     assert len(payload.embedding) == 128
     assert payload.model_name == "facenet-test"
 
@@ -63,16 +63,16 @@ def test_accepts_partial_update_from_image_payload():
 
 
 def test_accepts_session_verification_payload_aliases():
-    record_environment_id = uuid4()
+    candidate_id = uuid4()
     payload = FacialVerificationRequest(
-        recordEnvironmentId=record_environment_id,
+        candidateApprenticeIds=[candidate_id],
         imageBase64="data:image/jpeg;base64,abc",
         imageFrames=["data:image/jpeg;base64,abc"] * 3,
         livenessChallenge="MOVE_LEFT",
         threshold=0.72,
     )
 
-    assert payload.record_environment_id == record_environment_id
+    assert payload.candidate_apprentice_ids == [candidate_id]
     assert payload.image_base64 == "data:image/jpeg;base64,abc"
     assert len(payload.image_frames) == 3
     assert payload.liveness_challenge == "MOVE_LEFT"
@@ -87,12 +87,12 @@ def test_partial_update_rejects_invalid_embedding():
 def test_openapi_includes_partial_update_endpoint():
     schema = create_app().openapi()
 
-    patch_operation = schema["paths"]["/api/v1/facial-embeddings/users/{user_id}"]["patch"]
+    patch_operation = schema["paths"]["/api/v1/facial-embeddings/apprentices/{apprentice_id}"]["patch"]
     verify_operation = schema["paths"]["/api/v1/facial-embeddings/verify-session"]["post"]
     response_properties = schema["components"]["schemas"]["FacialEmbeddingResponse"]["properties"]
     summary_properties = schema["components"]["schemas"]["FacialEmbeddingSummary"]["properties"]
 
-    assert patch_operation["summary"] == "Actualizar parcialmente embedding facial activo por aprendiz"
+    assert patch_operation["summary"] == "Actualizar metadatos de plantilla por ID de aprendiz"
     assert verify_operation["summary"] == "Verificar rostro temporal contra los aprendices de una sesion"
     assert (
         patch_operation["requestBody"]["content"]["application/json"]["schema"]["$ref"]

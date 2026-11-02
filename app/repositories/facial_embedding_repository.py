@@ -13,17 +13,13 @@ class FacialEmbeddingRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def authorize_registration(self, apprentice_id: UUID, replace_existing: bool, reset_token: UUID | None) -> None:
-        # Lock the owner row, including when no facial record exists yet.
-        owner = await self.session.execute(text("""
-            SELECT u.id_user_app FROM security.user_app u
-            JOIN academic.apprentice a ON a.id_user_app = u.id_user_app
-            WHERE a.id_apprentice = :id AND a.deleted_at IS NULL
-            FOR UPDATE OF u
-            """), {"id": apprentice_id})
-        user_id = owner.scalar_one_or_none()
-        if user_id is None:
-            raise LookupError("Aprendiz no encontrado.")
+    async def authorize_registration(
+        self,
+        apprentice_id: UUID,
+        reset_owner_user_id: UUID | None,
+        replace_existing: bool,
+        reset_token: UUID | None,
+    ) -> None:
         existing = await self.session.execute(text("""
             SELECT EXISTS (SELECT 1 FROM facialrecognition.user_face WHERE id_apprentice = :id)
             """), {"id": apprentice_id})
@@ -31,6 +27,8 @@ class FacialEmbeddingRepository:
             return
         if not replace_existing or reset_token is None:
             raise ValueError("El reemplazo facial requiere aprobación vigente del coordinador.")
+        if reset_owner_user_id is None:
+            raise ValueError("No se pudo asociar la autorización facial con la cuenta autenticada.")
         consumed = await self.session.execute(text("""
             UPDATE facialrecognition.face_reset_request
             SET consumed_at = clock_timestamp(), updated_at = clock_timestamp(), updated_by = CAST(:user_id AS text)
@@ -38,7 +36,7 @@ class FacialEmbeddingRepository:
               AND request_status = 'ACCEPTED' AND consumed_at IS NULL
               AND authorization_expires_at > clock_timestamp() AND deleted_at IS NULL
             RETURNING id_face_reset_request
-            """), {"user_id": user_id, "token": reset_token})
+            """), {"user_id": reset_owner_user_id, "token": reset_token})
         if consumed.scalar_one_or_none() is None:
             raise ValueError("La autorización facial no existe, expiró o ya fue utilizada.")
 
@@ -83,24 +81,6 @@ class FacialEmbeddingRepository:
         )
         row = result.mappings().one_or_none()
         return dict(row) if row else None
-
-    async def resolve_apprentice_id(self, user_id: UUID) -> UUID | None:
-        result = await self.session.execute(
-            text(
-                """
-                SELECT id_apprentice
-                FROM academic.apprentice
-                WHERE deleted_at IS NULL
-                  AND (
-                    id_apprentice = :user_id
-                    OR id_user_app = :user_id
-                  )
-                LIMIT 1
-                """
-            ),
-            {"user_id": user_id},
-        )
-        return result.scalar_one_or_none()
 
     async def get_active_by_user(self, user_id: UUID) -> dict[str, Any] | None:
         result = await self.session.execute(
@@ -285,9 +265,11 @@ class FacialEmbeddingRepository:
     async def find_best_session_match(
         self,
         *,
-        record_environment_id: UUID,
+        candidate_apprentice_ids: list[UUID],
         embedding: list[float],
     ) -> dict[str, Any] | None:
+        if not candidate_apprentice_ids:
+            return None
         result = await self.session.execute(
             text(
                 """
@@ -295,15 +277,7 @@ class FacialEmbeddingRepository:
                     uf.id_apprentice,
                     1 - (uf.embedding <=> CAST(:embedding AS vector)) AS similarity
                 FROM facialrecognition.user_face uf
-                JOIN academic.apprentice_chip ac
-                  ON ac.id_apprentice = uf.id_apprentice
-                JOIN environment.record_environment re
-                  ON re.id_chip = ac.id_chip
-                WHERE re.id_record_environment = :record_environment_id
-                  AND re.active = TRUE
-                  AND re.deleted_at IS NULL
-                  AND ac.state = 'ACTIVE'
-                  AND ac.deleted_at IS NULL
+                WHERE uf.id_apprentice = ANY(CAST(:candidate_apprentice_ids AS uuid[]))
                   AND uf.status = 'ACTIVE'
                   AND uf.deleted_at IS NULL
                 ORDER BY uf.embedding <=> CAST(:embedding AS vector)
@@ -311,7 +285,7 @@ class FacialEmbeddingRepository:
                 """
             ),
             {
-                "record_environment_id": record_environment_id,
+                "candidate_apprentice_ids": candidate_apprentice_ids,
                 "embedding": vector_literal(embedding),
             },
         )

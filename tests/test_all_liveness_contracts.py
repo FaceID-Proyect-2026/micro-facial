@@ -79,7 +79,7 @@ def test_http_liveness_endpoint_uses_the_actual_challenge_rules(code, monkeypatc
     app = create_app()
     worker = MagicMock()
     worker.generate.side_effect = frames_for(code) + frames_for()
-    service = FacialEmbeddingService(AsyncMock(), embedding_worker=worker)
+    service = FacialEmbeddingService(AsyncMock(), embedding_worker=worker, repository=AsyncMock())
     app.dependency_overrides[facial_service] = lambda: service
 
     async def run():

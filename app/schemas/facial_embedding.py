@@ -9,7 +9,16 @@ from app.core.config import settings
 
 class FacialEmbeddingCreate(BaseModel):
     reset_token: UUID | None = None
-    user_id: UUID = Field(..., description="ID del aprendiz en academic.apprentice o id_user_app del usuario.")
+    apprentice_id: UUID = Field(
+        ...,
+        validation_alias=AliasChoices("apprentice_id", "apprenticeId", "user_id"),
+        description="ID de academic.apprentice resuelto y autorizado por FaceLit-Backend.",
+    )
+    reset_owner_user_id: UUID | None = Field(
+        default=None,
+        validation_alias=AliasChoices("reset_owner_user_id", "resetOwnerUserId"),
+        description="Cuenta autenticada que solicitó el registro; se usa solo para consumir autorización de reset.",
+    )
     embedding: list[float] = Field(..., description="Vector facial generado por el modelo de reconocimiento.")
     model_name: str = Field(default="unknown", min_length=1, max_length=100)
     photo_reference: str | None = Field(default=None, max_length=500)
@@ -18,6 +27,8 @@ class FacialEmbeddingCreate(BaseModel):
         description="Si es true, reemplaza el embedding activo anterior del aprendiz.",
     )
     created_by: str = Field(default="embedding-service", max_length=100)
+
+    model_config = ConfigDict(populate_by_name=True)
 
     @field_validator("embedding")
     @classmethod
@@ -37,7 +48,16 @@ class FacialEmbeddingCreate(BaseModel):
 
 class FacialEmbeddingFromImageCreate(BaseModel):
     reset_token: UUID | None = None
-    user_id: UUID = Field(..., description="ID del aprendiz en academic.apprentice o id_user_app del usuario.")
+    apprentice_id: UUID = Field(
+        ...,
+        validation_alias=AliasChoices("apprentice_id", "apprenticeId", "user_id"),
+        description="ID de academic.apprentice resuelto y autorizado por FaceLit-Backend.",
+    )
+    reset_owner_user_id: UUID | None = Field(
+        default=None,
+        validation_alias=AliasChoices("reset_owner_user_id", "resetOwnerUserId"),
+        description="Cuenta autenticada que solicitó el registro; se usa solo para consumir autorización de reset.",
+    )
     image_base64: str = Field(..., min_length=1, description="Imagen facial en base64 o data URI.")
     image_frames: list[str] = Field(
         default_factory=list,
@@ -69,10 +89,11 @@ class FacialEmbeddingFromImageCreate(BaseModel):
 
 
 class FacialVerificationRequest(BaseModel):
-    record_environment_id: UUID = Field(
-        ...,
-        validation_alias=AliasChoices("record_environment_id", "recordEnvironmentId"),
-        description="Sesion activa creada por el instructor en environment.record_environment.",
+    candidate_apprentice_ids: list[UUID] = Field(
+        default_factory=list,
+        max_length=1000,
+        validation_alias=AliasChoices("candidate_apprentice_ids", "candidateApprenticeIds"),
+        description="IDs autorizados por FaceLit-Backend para la ficha de esta sesión.",
     )
     image_base64: str | None = Field(
         default=None,

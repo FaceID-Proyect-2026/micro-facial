@@ -13,7 +13,7 @@ REMOVED_CODES = ['BLINK', 'OPEN_CLOSE_MOUTH', 'NOD', 'SHAKE_HEAD', 'KISS_CAMERA'
 
 
 def service():
-    return FacialEmbeddingService(AsyncMock(), embedding_worker=MagicMock())
+    return FacialEmbeddingService(AsyncMock(), embedding_worker=MagicMock(), repository=AsyncMock())
 
 
 @pytest.mark.parametrize('code', CODES)

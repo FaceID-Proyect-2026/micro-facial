@@ -57,12 +57,12 @@ Copy [.env.example](.env.example) only if no local `.env` exists, and set the in
 | --- | --- |
 | `DATABASE_URL` | Async SQLAlchemy PostgreSQL URL for the target FaceLit database |
 | `API_KEY` | Internal credential matching backend requests |
-| `CORS_ORIGINS`, `CORS_ORIGIN_REGEX` | Browser-origin configuration |
+| `CORS_ORIGINS` | Explicit browser-origin configuration |
 | `PRELOAD_MODEL` | Optional startup model warm-up |
 | `INSIGHTFACE_MODEL_NAME`, `INSIGHTFACE_DET_SIZE`, `INSIGHTFACE_CTX_ID` | Model and execution configuration |
 | `MIN_EMBEDDING_DIMENSION`, `MAX_EMBEDDING_DIMENSION` | Allowed vector dimensions |
 
-Inspect [config.py](app/core/config.py) for current defaults and liveness thresholds. Configure real values explicitly. In this source revision, authentication is conditional on a nonempty `API_KEY`; an empty value is not suitable for a deployed service. Mandatory credentials and removal of development fallbacks belong to their coordinated security/container deliveries, not this README-only change.
+Inspect [config.py](app/core/config.py) for current defaults and liveness thresholds. `API_KEY` must be a service-specific secret: application startup fails when it is empty or set to `change-me`.
 
 ## API and flow contracts
 
@@ -85,15 +85,30 @@ capture, model caching and inference parameters are unchanged.
 | `POST /api/v1/facial-embeddings/from-image` | Generate/register from capture and optional liveness frames |
 | `POST /api/v1/facial-embeddings/liveness-check` | Evaluate a requested liveness challenge |
 | `POST /api/v1/facial-embeddings/verify-session` | Match capture against eligible session candidates |
-| `GET /api/v1/facial-embeddings/users/{user_id}` | Read an active record |
-| `PATCH /api/v1/facial-embeddings/users/{user_id}` | Update permitted metadata; changing vector/image is rejected by the current service |
-| `DELETE /api/v1/facial-embeddings/users/{user_id}` | Deactivate an active record |
+| `GET /api/v1/facial-embeddings/apprentices/{apprentice_id}` | Read an active record by apprentice ID |
+| `PATCH /api/v1/facial-embeddings/apprentices/{apprentice_id}` | Update permitted metadata; changing vector/image is rejected |
+| `DELETE /api/v1/facial-embeddings/apprentices/{apprentice_id}` | Deactivate an active record by apprentice ID |
 | `GET /api/v1/facial-embeddings` | List active summaries with pagination |
 | `GET /health` | Process/startup health response |
 
-Requests protected by the configured internal key send `X-API-Key`. Enrollment resolves the supplied user/apprentice to the current academic owner. Replacing an existing template requires the existing approved, unexpired, single-use reset authorization and the live-capture path; failed writes must roll back authorization consumption. Liveness compares frames/challenges and facial metrics. Session verification resolves eligible candidates before returning match status; the backend remains responsible for its attendance flow.
+Requests protected by the configured internal key send `X-API-Key`. FaceLit-Backend resolves the authenticated account to its active apprentice record and passes the `apprentice_id` and reset owner to this service. Micro-facial no longer queries identity, academic or session tables; it reads and writes the facial-recognition schema. Replacing an existing template requires the approved, unexpired, single-use reset authorization and the live-capture path; failed writes roll back authorization consumption. For attendance, the backend validates the session and sends only the active apprentice IDs in `candidate_apprentice_ids`; this service compares against active facial templates in that bounded list.
 
-Do not infer that this documentation change removes biometric fields from the existing response models or completes network isolation. Review and deploy the separately coordinated security change before claiming those acceptance criteria.
+The response schemas expose metadata and match results, not embedding vectors. The database is still shared operationally; configure a micro-facial database account with grants limited to the facial-recognition objects before claiming database-level isolation.
+
+## Database account boundary
+
+Apply the FaceLit-DB changelog, then provision the dedicated login with
+`FaceLit-DB/scripts/provision_micro_facial_login.ps1` from the FaceLit-DB
+repository (the repositories are versioned independently).
+The operator supplies `FACELIT_MICRO_DB_PASSWORD` through the deployment secret
+store or process environment. Configure `DATABASE_URL` with this login; do not
+reuse the backend or migration account. The group role can read/write facial
+templates and consume approved reset tokens, and has no grants on identity,
+academic, environment, attendance-event, or notification tables.
+
+The database remains physically shared. This account boundary limits what the
+microservice can access at PostgreSQL, while FaceLit-Backend remains the source
+of identity, session and apprentice eligibility decisions.
 
 ## Docker and model storage
 
@@ -105,7 +120,7 @@ docker compose logs --tail=80 embedding-service
 
 The standalone Compose file expects the external `facelit-docker-compose_default` database network. Its internal database hostname is `postgres`; host processes normally use localhost with the database's configured host port. The Compose service is named `embedding-service`, while a workspace-level deployment may use another private alias.
 
-The current Dockerfile is Python 3.11 with native build/runtime libraries, and the current Compose model volume mounts at `/root/.insightface`. Model warm-up/download can take time and requires network access and storage. Non-root image construction, model-volume permission changes and image health probes are part of HU-MEJ-015, preserved separately and not silently applied here.
+The Dockerfile uses a build stage for native dependencies and a smaller runtime stage. The process runs as UID/GID 10001 and reports `/health` through Docker `HEALTHCHECK`. Compose stores models in `/home/facelit/.insightface`; initial model download requires network access and storage.
 
 The project owner identified Hostinger `srv2068863.hstgr.cloud` as the deployment target. Keep the facial service private to the intended backend/network; it does not require a public URL. A public frontend page returning HTTP 200 does not verify this service or its model.
 
@@ -171,3 +186,25 @@ Record the exact component commits, CI run and artifacts for a coordinated relea
 All maintained explanatory documentation is consolidated in this README. The previous CI narrative remains recoverable from Git history and the separate delivery archive. Python code, tests, workflow YAML, requirements, configuration examples, Docker inputs and source comments remain in their functional locations.
 
 Related repositories: [backend](https://github.com/FaceID-Proyect-2026/FaceLit-Backend), [frontend](https://github.com/FaceID-Proyect-2026/FaceLit), [database](https://github.com/FaceID-Proyect-2026/FaceLit-DB).
+
+## Revision-tagged container release (HU-48)
+
+The manual `.github/workflows/container-release.yml` first runs this repository's
+reusable CI. Only a successful result permits building/publishing to GHCR. The
+artifact `container-release-reference` records the source revision and registry
+digest. Publication is an explicit workflow dispatch; no image was published as
+part of the local implementation. Publish the coordinated database branch before
+dispatching CI that references it. Deployment and rollback use recorded digests
+and a compatible database schema; see the workspace `deploy/README.md` and the
+HU-48 assessment in facelit-docs. A passing local test is not production acceptance.
+
+## Application dependency boundary (HU-48)
+
+The application service now requires an explicit generator and repository. Its
+transaction dependency is described by UnitOfWork (commit/rollback), not an
+SQLAlchemy class. api/dependencies.py composes the production implementations;
+the E2E fixture composes its real repository and deterministic inference worker.
+GeneratedEmbedding is a plain value in app/domain/embedding.py, re-exported by
+the worker module for existing callers. HTTP routes, schemas, SQL, model behavior,
+thread ownership and inference caching are preserved. Internal callers that
+construct the service must pass a repository explicitly.

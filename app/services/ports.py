@@ -3,7 +3,7 @@
 from typing import Any, Protocol
 from uuid import UUID
 
-from app.workers.face_embedding_worker import GeneratedEmbedding
+from app.domain.embedding import GeneratedEmbedding
 
 
 class EmbeddingGenerator(Protocol):
@@ -17,9 +17,8 @@ class LivenessPolicy(Protocol):
 
 
 class FacialEmbeddingStore(Protocol):
-    async def resolve_apprentice_id(self, user_id: UUID) -> UUID | None: ...
-
-    async def authorize_registration(self, apprentice_id: UUID, replace_existing: bool, reset_token: UUID | None) -> None: ...
+    async def authorize_registration(self, apprentice_id: UUID, reset_owner_user_id: UUID | None,
+                                     replace_existing: bool, reset_token: UUID | None) -> None: ...
 
     async def find_duplicate_embedding(self, *, apprentice_id: UUID, embedding: list[float], threshold: float) -> dict[str, Any] | None: ...
 
@@ -36,4 +35,10 @@ class FacialEmbeddingStore(Protocol):
 
     async def deactivate(self, user_id: UUID, deleted_by: str) -> bool: ...
 
-    async def find_best_session_match(self, *, record_environment_id: UUID, embedding: list[float]) -> dict[str, Any] | None: ...
+    async def find_best_session_match(self, *, candidate_apprentice_ids: list[UUID], embedding: list[float]) -> dict[str, Any] | None: ...
+
+
+class UnitOfWork(Protocol):
+    async def commit(self) -> None: ...
+
+    async def rollback(self) -> None: ...
