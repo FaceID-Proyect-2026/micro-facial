@@ -1,3 +1,4 @@
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
@@ -35,7 +36,7 @@ class FakeRepository:
 async def test_session_verification_returns_match_when_similarity_reaches_threshold():
     apprentice_id = uuid4()
     record_environment_id = uuid4()
-    service = FacialEmbeddingService(session=None, embedding_worker=FakeWorker())
+    service = FacialEmbeddingService(session=None, embedding_worker=FakeWorker(), repository=AsyncMock())
     service.repository = FakeRepository({"id_apprentice": apprentice_id, "similarity": 0.81})
 
     result = await service.verify_session_face(
@@ -56,7 +57,7 @@ async def test_session_verification_returns_match_when_similarity_reaches_thresh
 @pytest.mark.anyio
 async def test_session_verification_rejects_below_threshold():
     apprentice_id = uuid4()
-    service = FacialEmbeddingService(session=None, embedding_worker=FakeWorker())
+    service = FacialEmbeddingService(session=None, embedding_worker=FakeWorker(), repository=AsyncMock())
     service.repository = FakeRepository({"id_apprentice": apprentice_id, "similarity": 0.51})
 
     result = await service.verify_session_face(
@@ -75,7 +76,7 @@ async def test_session_verification_rejects_below_threshold():
 
 @pytest.mark.anyio
 async def test_session_verification_rejects_without_active_candidates():
-    service = FacialEmbeddingService(session=None, embedding_worker=FakeWorker())
+    service = FacialEmbeddingService(session=None, embedding_worker=FakeWorker(), repository=AsyncMock())
     service.repository = FakeRepository(None)
 
     result = await service.verify_session_face(
@@ -94,7 +95,7 @@ async def test_session_verification_rejects_without_active_candidates():
 
 @pytest.mark.anyio
 async def test_session_verification_rejects_single_photo_without_liveness_frames():
-    service = FacialEmbeddingService(session=None, embedding_worker=FakeWorker())
+    service = FacialEmbeddingService(session=None, embedding_worker=FakeWorker(), repository=AsyncMock())
     service.repository = FakeRepository(None)
 
     result = await service.verify_session_face(

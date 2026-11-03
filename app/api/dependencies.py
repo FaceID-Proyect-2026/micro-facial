@@ -1,3 +1,4 @@
+# Conecta las dependencias de cada petición y valida la clave interna.
 from secrets import compare_digest
 from fastapi import Depends, HTTPException, Security, status
 from fastapi.security import APIKeyHeader
@@ -29,6 +30,7 @@ async def db_session() -> AsyncSession:
 
 def facial_service(session: AsyncSession = Depends(db_session)) -> FacialEmbeddingService:
     """Compose request-scoped application dependencies outside the HTTP handlers."""
+    # El repositorio y el servicio comparten la sesión de esta petición.
     return FacialEmbeddingService(
         session,
         embedding_worker=get_face_embedding_worker(),

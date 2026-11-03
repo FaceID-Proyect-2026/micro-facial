@@ -1,10 +1,10 @@
+# Convierte imágenes en vectores y métricas faciales mediante el modelo de inferencia.
 import base64
 import binascii
 import math
 import os
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
 from functools import lru_cache
 from hashlib import sha256
 from pathlib import Path
@@ -13,16 +13,7 @@ from time import monotonic
 from typing import Any
 
 from app.core.config import settings
-
-
-@dataclass(frozen=True)
-class GeneratedEmbedding:
-    embedding: list[float]
-    model_name: str
-    face_count: int
-    landmarks: list[list[float]]
-    bbox: list[float]
-    image_metrics: dict[str, float]
+from app.domain.embedding import GeneratedEmbedding  # compatibility export for existing callers
 
 
 class FaceEmbeddingWorker:
@@ -34,6 +25,7 @@ class FaceEmbeddingWorker:
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='facelit-inference')
 
     def generate(self, image_base64: str) -> GeneratedEmbedding:
+        # Un solo hilo ejecuta las inferencias sobre el modelo compartido.
         return self._executor.submit(self._generate_serialized, image_base64).result()
 
     def _generate_serialized(self, image_base64: str) -> GeneratedEmbedding:
@@ -68,6 +60,7 @@ class FaceEmbeddingWorker:
         if len(faces) > 1:
             raise ValueError("La imagen contiene mas de un rostro.")
 
+        # El vector sirve para comparar rostros. Los puntos y métricas alimentan los retos de vida.
         face = faces[0]
         embedding = face.embedding.astype(float).tolist()
         landmarks = getattr(face, "kps", None)

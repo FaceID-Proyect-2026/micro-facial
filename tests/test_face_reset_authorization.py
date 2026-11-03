@@ -57,7 +57,7 @@ def test_reused_expired_or_wrong_owner_token_cannot_be_consumed():
 
 def test_failed_embedding_write_rolls_back_authorization_consumption():
     session = AsyncMock()
-    service = FacialEmbeddingService(session, embedding_worker=MagicMock())
+    service = FacialEmbeddingService(session, embedding_worker=MagicMock(), repository=AsyncMock())
     service.repository = AsyncMock()
     service.repository.resolve_apprentice_id.return_value = uuid4()
     service.repository.find_duplicate_embedding.return_value = None
@@ -72,7 +72,7 @@ def test_failed_embedding_write_rolls_back_authorization_consumption():
 
 def test_successful_replacement_writes_new_embedding_and_commits_once():
     session = AsyncMock()
-    service = FacialEmbeddingService(session, embedding_worker=MagicMock())
+    service = FacialEmbeddingService(session, embedding_worker=MagicMock(), repository=AsyncMock())
     service.repository = AsyncMock()
     apprentice = uuid4()
     service.repository.resolve_apprentice_id.return_value = apprentice
@@ -92,7 +92,7 @@ def test_successful_replacement_writes_new_embedding_and_commits_once():
 
 def test_duplicate_face_is_rejected_before_authorization_or_write():
     session = AsyncMock()
-    service = FacialEmbeddingService(session, embedding_worker=MagicMock())
+    service = FacialEmbeddingService(session, embedding_worker=MagicMock(), repository=AsyncMock())
     service.repository = AsyncMock()
     apprentice = uuid4()
     service.repository.resolve_apprentice_id.return_value = apprentice
@@ -112,7 +112,7 @@ def test_duplicate_face_is_rejected_before_authorization_or_write():
 
 
 def test_approved_reregistration_still_requires_live_capture():
-    service = FacialEmbeddingService(AsyncMock(), embedding_worker=MagicMock())
+    service = FacialEmbeddingService(AsyncMock(), embedding_worker=MagicMock(), repository=AsyncMock())
     payload = FacialEmbeddingFromImageCreate(user_id=uuid4(), image_base64="photo", reset_token=uuid4())
     with pytest.raises(ValueError, match="dos retos"):
         asyncio.run(service.register_from_image(payload))
@@ -120,7 +120,7 @@ def test_approved_reregistration_still_requires_live_capture():
 
 
 def test_raw_vector_and_partial_update_cannot_bypass_live_reregistration():
-    service = FacialEmbeddingService(AsyncMock(), embedding_worker=MagicMock())
+    service = FacialEmbeddingService(AsyncMock(), embedding_worker=MagicMock(), repository=AsyncMock())
     raw = FacialEmbeddingCreate(user_id=uuid4(), embedding=[0.1] * 128, reset_token=uuid4())
     with pytest.raises(ValueError, match="captura en vivo"):
         asyncio.run(service.register(raw))

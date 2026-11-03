@@ -1,3 +1,4 @@
+# Evalúa los retos de movimiento y la continuidad del rostro entre fotogramas.
 """Pure facial liveness rules; independent of HTTP, SQL and model loading."""
 
 import logging
@@ -26,6 +27,7 @@ class LivenessValidator:
         if len(frames) % len(challenges):
             return False, "Cada reto debe contener el mismo número de frames."
 
+        # Se compara cada frame con el primero para comprobar continuidad del rostro.
         reference = frames[0]
         if any(self._cosine_similarity(reference.embedding, frame.embedding) < settings.liveness_min_embedding_similarity for frame in frames[1:]):
             return False, "La secuencia no corresponde de forma consistente a la misma persona."

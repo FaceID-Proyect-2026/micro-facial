@@ -1,3 +1,4 @@
+# Valida los datos de registro, verificación y prueba de vida y define sus respuestas.
 import math
 from datetime import datetime
 from uuid import UUID

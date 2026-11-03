@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import db_session, facial_service
 from app.main import create_app
+from app.repositories.facial_embedding_repository import FacialEmbeddingRepository
 from app.services.facial_embedding_service import FacialEmbeddingService
 from app.workers.face_embedding_worker import GeneratedEmbedding
 from liveness_signals import CODES, frames_for
@@ -31,7 +32,7 @@ class FixtureEmbeddingWorker:
 
 
 def fixture_service(session: AsyncSession = Depends(db_session)) -> FacialEmbeddingService:
-    return FacialEmbeddingService(session, embedding_worker=FixtureEmbeddingWorker())
+    return FacialEmbeddingService(session, embedding_worker=FixtureEmbeddingWorker(), repository=FacialEmbeddingRepository(session))
 
 
 app = create_app()

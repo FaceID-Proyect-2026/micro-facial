@@ -1,3 +1,4 @@
+# Lee y centraliza la configuración del servicio.
 from functools import lru_cache
 import json
 from typing import Annotated

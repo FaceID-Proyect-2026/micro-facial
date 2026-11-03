@@ -1,11 +1,14 @@
+# Define las operaciones que el servicio necesita de sus dependencias.
 """Small structural contracts consumed by the application layer."""
 
 from typing import Any, Protocol
 from uuid import UUID
 
-from app.workers.face_embedding_worker import GeneratedEmbedding
+from app.domain.embedding import GeneratedEmbedding
 
 
+# Los protocolos definen las operaciones que necesita el servicio.
+# En las pruebas se pueden conectar implementaciones simuladas.
 class EmbeddingGenerator(Protocol):
     def generate(self, image_base64: str) -> GeneratedEmbedding: ...
 
@@ -37,3 +40,10 @@ class FacialEmbeddingStore(Protocol):
     async def deactivate(self, user_id: UUID, deleted_by: str) -> bool: ...
 
     async def find_best_session_match(self, *, record_environment_id: UUID, embedding: list[float]) -> dict[str, Any] | None: ...
+
+
+# El servicio decide cuándo confirmar o revertir la escritura.
+class UnitOfWork(Protocol):
+    async def commit(self) -> None: ...
+
+    async def rollback(self) -> None: ...

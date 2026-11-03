@@ -1,3 +1,4 @@
+# Reúne las rutas que forman la versión 1 de la API.
 from fastapi import APIRouter
 
 from app.api.v1.routes import facial_embeddings
