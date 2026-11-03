@@ -1,3 +1,4 @@
+# Proporciona sesiones asíncronas para las operaciones de persistencia.
 from collections.abc import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine

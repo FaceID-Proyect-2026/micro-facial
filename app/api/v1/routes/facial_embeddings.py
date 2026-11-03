@@ -1,3 +1,4 @@
+# Traduce peticiones HTTP en llamadas al servicio facial y sus resultados en respuestas HTTP.
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status

@@ -1,14 +1,13 @@
+# Coordina el registro facial, la prueba de vida y la verificación de asistencia.
 import asyncio
 import logging
 from time import perf_counter
 from uuid import UUID
 
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.repositories.facial_embedding_repository import FacialEmbeddingRepository
 from app.services.liveness_validator import LivenessValidator
-from app.services.ports import EmbeddingGenerator, FacialEmbeddingStore, LivenessPolicy
+from app.services.ports import EmbeddingGenerator, FacialEmbeddingStore, LivenessPolicy, UnitOfWork
 from app.schemas.facial_embedding import (
     FacialEmbeddingCreate,
     FacialEmbeddingFromImageCreate,
@@ -20,7 +19,6 @@ from app.schemas.facial_embedding import (
     FacialVerificationRequest,
     FacialVerificationResponse,
 )
-from app.workers.face_embedding_worker import get_face_embedding_worker
 
 logger = logging.getLogger("facelit.embedding")
 
@@ -40,16 +38,16 @@ class FacialEmbeddingService:
     REQUIRED_LIVENESS_CHALLENGES = LivenessValidator.REQUIRED_LIVENESS_CHALLENGES
     def __init__(
         self,
-        session: AsyncSession,
-        embedding_worker: EmbeddingGenerator | None = None,
+        session: UnitOfWork,
+        embedding_worker: EmbeddingGenerator,
         *,
-        repository: FacialEmbeddingStore | None = None,
+        repository: FacialEmbeddingStore,
         liveness_validator: LivenessPolicy | None = None,
     ) -> None:
         self.session = session
-        self.repository = repository if repository is not None else FacialEmbeddingRepository(session)
+        self.repository = repository
         self.liveness_validator = liveness_validator if liveness_validator is not None else LivenessValidator()
-        self.embedding_worker = embedding_worker or get_face_embedding_worker()
+        self.embedding_worker = embedding_worker
 
     async def register(self, payload: FacialEmbeddingCreate) -> FacialEmbeddingResponse:
         if payload.reset_token is not None:
@@ -57,6 +55,7 @@ class FacialEmbeddingService:
         return await self._register_embedding(payload)
 
     async def register_from_image(self, payload: FacialEmbeddingFromImageCreate) -> FacialEmbeddingResponse:
+        # La inferencia es síncrona y se deriva a un hilo para liberar el bucle de FastAPI.
         generated = await asyncio.to_thread(self._generate_registration_embedding, payload)
         embedding_payload = FacialEmbeddingCreate(
             user_id=payload.user_id,
@@ -215,6 +214,8 @@ class FacialEmbeddingService:
         return LivenessValidator.resolve_challenges(challenges, challenge)
 
     async def _register_embedding(self, payload: FacialEmbeddingCreate) -> FacialEmbeddingResponse:
+        # La autorización y la escritura usan la misma transacción.
+        # Si falla la escritura, el rollback también revierte el consumo del permiso.
         apprentice_id = await self._resolve_apprentice_id(payload.user_id)
 
         try:

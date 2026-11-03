@@ -1,3 +1,4 @@
+# Encapsula las consultas de plantillas faciales, coincidencias y permisos de reemplazo.
 from typing import Any
 from uuid import UUID
 
@@ -31,6 +32,7 @@ class FacialEmbeddingRepository:
             return
         if not replace_existing or reset_token is None:
             raise ValueError("El reemplazo facial requiere aprobación vigente del coordinador.")
+        # El UPDATE consume el permiso solo si pertenece al usuario, sigue vigente y no se usó.
         consumed = await self.session.execute(text("""
             UPDATE facialrecognition.face_reset_request
             SET consumed_at = clock_timestamp(), updated_at = clock_timestamp(), updated_by = CAST(:user_id AS text)

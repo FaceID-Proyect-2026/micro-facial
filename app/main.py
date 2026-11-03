@@ -1,3 +1,4 @@
+# Crea la aplicación FastAPI y coordina el inicio y cierre del motor facial.
 import logging
 import asyncio
 

@@ -141,7 +141,7 @@ def test_health_remains_responsive_while_liveness_inference_is_running(monkeypat
 def test_registration_runs_cpu_work_off_loop_and_keeps_persistence_on_loop(monkeypatch):
     main_thread = get_ident()
     generated = frames_for("MOVE_UP")[-1]
-    service = FacialEmbeddingService(session=None, embedding_worker=SimpleNamespace())
+    service = FacialEmbeddingService(session=None, embedding_worker=SimpleNamespace(), repository=AsyncMock())
     persistence = AsyncMock(return_value="persisted")
 
     def inference(payload):
